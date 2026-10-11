@@ -3,15 +3,12 @@ package com.retroamp.player
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
+import android.app.ActivityManager
 import android.content.*
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Typeface
+import android.graphics.*
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.*
@@ -40,6 +37,7 @@ class MainActivity : Activity() {
     private var currentDuration = 0
     private var artworkRequest = 0
     private var scanning = false
+    private var receiverRegistered = false
 
     private lateinit var title: TextView
     private lateinit var artist: TextView
@@ -64,6 +62,7 @@ class MainActivity : Activity() {
             val newIndex = intent.getIntExtra(
                 MusicService.EXTRA_INDEX, -1
             )
+
             val changed = newIndex != index
             index = newIndex
 
@@ -122,6 +121,7 @@ class MainActivity : Activity() {
 
             for (i in 0 until array.length()) {
                 val item = array.getJSONObject(i)
+
                 tracks.add(
                     item.getString("name") to
                         Uri.parse(item.getString("uri"))
@@ -130,7 +130,10 @@ class MainActivity : Activity() {
         } catch (_: Exception) {}
 
         index = prefs().getInt("saved_index", -1)
-        if (index !in tracks.indices) index = -1
+
+        if (index !in tracks.indices) {
+            index = -1
+        }
 
         shuffle = prefs().getBoolean("shuffle", false)
         repeat = prefs().getBoolean("repeat", false)
@@ -161,6 +164,23 @@ class MainActivity : Activity() {
             .apply()
     }
 
+    private fun serviceRunning(): Boolean {
+        return try {
+            val manager = getSystemService(
+                ACTIVITY_SERVICE
+            ) as ActivityManager
+
+            manager.getRunningServices(
+                Int.MAX_VALUE
+            ).any {
+                it.service.className ==
+                    MusicService::class.java.name
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun command(
         action: String,
         extra: Int? = null,
@@ -170,21 +190,200 @@ class MainActivity : Activity() {
             this, MusicService::class.java
         ).apply {
             this.action = action
-            if (extra != null) putExtra(extraName, extra)
+
+            if (extra != null) {
+                putExtra(extraName, extra)
+            }
         }
 
-        if (
-            action == MusicService.PLAY ||
-            action == MusicService.PLAY_INDEX ||
-            action == MusicService.TOGGLE
-        ) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            if (
+                action == MusicService.PLAY ||
+                action == MusicService.PLAY_INDEX ||
+                action == MusicService.TOGGLE
+            ) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (e: Exception) {
+            Toast.makeText(
+                this,
+                "Não foi possível executar o comando",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
-    // AUTO SCAN 1.5
+    // REMOVER UMA MÚSICA
+
+    private fun confirmRemove(position: Int) {
+        val song = tracks.getOrNull(position) ?: return
+
+        AlertDialog.Builder(this)
+            .setTitle("Remover música?")
+            .setMessage(
+                "Remover \"${song.first}\" da playlist?\n\n" +
+                    "O arquivo original continuará no celular."
+            )
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Remover") { _, _ ->
+                removeTrack(position)
+            }
+            .show()
+    }
+
+    private fun removeTrack(position: Int) {
+        if (position !in tracks.indices) return
+
+        val oldIndex = index
+        val wasPlaying = playing
+        val oldPosition = currentPosition
+        val running = serviceRunning()
+
+        // Para evitar índices incorretos, interrompemos
+        // o serviço antes de modificar a lista.
+        if (running) {
+            stopService(
+                Intent(this, MusicService::class.java)
+            )
+        }
+
+        tracks.removeAt(position)
+
+        index = when {
+            tracks.isEmpty() -> -1
+            oldIndex < 0 -> -1
+            position < oldIndex -> oldIndex - 1
+            position == oldIndex -> -1
+            else -> oldIndex
+        }
+
+        currentPosition =
+            if (position == oldIndex) 0 else oldPosition
+
+        playing = false
+
+        prefs().edit()
+            .putInt("saved_index", index)
+            .putInt("saved_position", currentPosition)
+            .apply()
+
+        savePlaylist()
+        refreshPlaylist()
+        updateLibraryStatus()
+
+        if (index == -1) {
+            title.text = "RETROAMP"
+            artist.text = "Artista desconhecido"
+            album.text = "Álbum desconhecido"
+            currentDuration = 0
+            currentPosition = 0
+            time.text = "00:00 / 00:00"
+            seek.progress = 0
+            playButton.text = "▶"
+        }
+
+        loadArtwork()
+
+        // Se outra faixa estava tocando, retoma a
+        // música correspondente ao novo índice.
+        if (wasPlaying && index in tracks.indices) {
+            handler.postDelayed({
+                if (!isFinishing && !isDestroyed) {
+                    command(MusicService.PLAY_INDEX, index)
+
+                    if (oldPosition > 0) {
+                        handler.postDelayed({
+                            if (!isFinishing && !isDestroyed) {
+                                command(
+                                    MusicService.SEEK,
+                                    oldPosition,
+                                    MusicService.EXTRA_POSITION
+                                )
+                            }
+                        }, 900)
+                    }
+                }
+            }, 300)
+        }
+
+        Toast.makeText(
+            this,
+            "Música removida da playlist",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    // LIMPAR A PLAYLIST INTEIRA
+
+    private fun confirmClearPlaylist() {
+        if (tracks.isEmpty()) {
+            Toast.makeText(
+                this,
+                "A playlist já está vazia",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Limpar playlist?")
+            .setMessage(
+                "Remover todas as ${tracks.size} músicas " +
+                    "da biblioteca do RetroAmp?\n\n" +
+                    "Nenhum MP3 será apagado do celular. " +
+                    "Você poderá usar o Auto Scan novamente."
+            )
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Limpar tudo") { _, _ ->
+                clearPlaylist()
+            }
+            .show()
+    }
+
+    private fun clearPlaylist() {
+        stopService(
+            Intent(this, MusicService::class.java)
+        )
+
+        tracks.clear()
+        index = -1
+        playing = false
+        currentPosition = 0
+        currentDuration = 0
+
+        prefs().edit()
+            .putInt("saved_index", -1)
+            .putInt("saved_position", 0)
+            .apply()
+
+        savePlaylist()
+        refreshPlaylist()
+        updateLibraryStatus()
+        loadArtwork()
+
+        title.text = "RETROAMP"
+        artist.text = "Artista desconhecido"
+        album.text = "Álbum desconhecido"
+        time.text = "00:00 / 00:00"
+        seek.progress = 0
+        seek.max = 1
+        playButton.text = "▶"
+
+        Toast.makeText(
+            this,
+            "Playlist limpa com sucesso",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    private fun updateLibraryStatus() {
+        libraryStatus.text =
+            "${tracks.size} músicas na biblioteca"
+    }
+
+    // AUTO SCAN
 
     private fun audioPermission(): String {
         return if (Build.VERSION.SDK_INT >= 33) {
@@ -234,7 +433,7 @@ class MainActivity : Activity() {
             } else {
                 Toast.makeText(
                     this,
-                    "Permita acesso aos áudios para usar o Auto Scan",
+                    "Autorize o acesso às músicas para usar o Auto Scan",
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -247,7 +446,7 @@ class MainActivity : Activity() {
         scanning = true
         scanButton.isEnabled = false
         scanButton.text = "BUSCANDO..."
-        libraryStatus.text = "Procurando músicas no celular..."
+        libraryStatus.text = "Buscando músicas..."
 
         Thread {
             val found = mutableListOf<Pair<String, Uri>>()
@@ -282,13 +481,15 @@ class MainActivity : Activity() {
                     order
                 )?.use { cursor ->
 
-                    val idColumn = cursor.getColumnIndexOrThrow(
-                        MediaStore.Audio.Media._ID
-                    )
+                    val idColumn =
+                        cursor.getColumnIndexOrThrow(
+                            MediaStore.Audio.Media._ID
+                        )
 
-                    val nameColumn = cursor.getColumnIndexOrThrow(
-                        MediaStore.Audio.Media.DISPLAY_NAME
-                    )
+                    val nameColumn =
+                        cursor.getColumnIndexOrThrow(
+                            MediaStore.Audio.Media.DISPLAY_NAME
+                        )
 
                     while (cursor.moveToNext()) {
                         val id = cursor.getLong(idColumn)
@@ -296,26 +497,30 @@ class MainActivity : Activity() {
                             ?: "Música $id"
 
                         val uri = ContentUris.withAppendedId(
-                            collection, id
+                            collection,
+                            id
                         )
 
                         found.add(name to uri)
                     }
                 }
             } catch (e: Exception) {
-                error = e.message ?: "Erro ao buscar músicas"
+                error = e.message ?: "Erro no Auto Scan"
             }
 
             val scanError = error
 
             runOnUiThread {
+                if (isFinishing || isDestroyed) {
+                    return@runOnUiThread
+                }
+
                 scanning = false
                 scanButton.isEnabled = true
                 scanButton.text = "⟳ AUTO SCAN"
 
                 if (scanError != null) {
-                    libraryStatus.text =
-                        "Não foi possível concluir a busca"
+                    updateLibraryStatus()
 
                     Toast.makeText(
                         this,
@@ -326,8 +531,6 @@ class MainActivity : Activity() {
                     return@runOnUiThread
                 }
 
-                // Preserva a playlist atual e adiciona
-                // apenas os arquivos que ainda não existem.
                 val existing = tracks.map {
                     it.second.toString()
                 }.toMutableSet()
@@ -343,15 +546,11 @@ class MainActivity : Activity() {
 
                 savePlaylist()
                 refreshPlaylist()
+                updateLibraryStatus()
 
-                // Avisa o serviço para recarregar a playlist.
-                // Não interrompe a música atual.
                 if (serviceRunning()) {
                     command(MusicService.REFRESH)
                 }
-
-                libraryStatus.text =
-                    "${tracks.size} músicas na biblioteca"
 
                 prefs().edit()
                     .putBoolean("auto_scan_done", true)
@@ -366,18 +565,7 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    private fun serviceRunning(): Boolean {
-        val manager = getSystemService(
-            ACTIVITY_SERVICE
-        ) as android.app.ActivityManager
-
-        return manager.getRunningServices(
-            Int.MAX_VALUE
-        ).any {
-            it.service.className ==
-                MusicService::class.java.name
-        }
-    }
+    // CAPA DO ÁLBUM
 
     private fun defaultCover(): Bitmap {
         val bitmap = Bitmap.createBitmap(
@@ -401,18 +589,22 @@ class MainActivity : Activity() {
 
         paint.style = Paint.Style.FILL
         paint.typeface = Typeface.create(
-            Typeface.MONOSPACE, Typeface.BOLD
+            Typeface.MONOSPACE,
+            Typeface.BOLD
         )
 
         paint.textSize = 56f
-        canvas.drawText("RETROAMP", 240f, 180f, paint)
+        canvas.drawText(
+            "RETROAMP", 240f, 180f, paint
+        )
 
         paint.textSize = 130f
         canvas.drawText("♫", 240f, 320f, paint)
 
         paint.textSize = 23f
         canvas.drawText(
-            "BY MATHEUSOBLACK", 240f, 410f, paint
+            "BY MATHEUSOBLACK",
+            240f, 410f, paint
         )
 
         return bitmap
@@ -444,12 +636,12 @@ class MainActivity : Activity() {
                     )
 
                     val maxSide = maxOf(
-                        bounds.outWidth, bounds.outHeight
+                        bounds.outWidth,
+                        bounds.outHeight
                     )
 
-                    val sample = (
-                        maxSide / 800
-                    ).coerceAtLeast(1)
+                    val sample =
+                        (maxSide / 800).coerceAtLeast(1)
 
                     bitmap = BitmapFactory.decodeByteArray(
                         bytes,
@@ -492,7 +684,9 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.rgb(25, 25, 28))
-            setPadding(dp(12), dp(12), dp(12), dp(8))
+            setPadding(
+                dp(12), dp(12), dp(12), dp(8)
+            )
         }
 
         setContentView(root)
@@ -502,14 +696,18 @@ class MainActivity : Activity() {
             silver, 17f
         ).apply {
             setTypeface(
-                Typeface.MONOSPACE, Typeface.BOLD
+                Typeface.MONOSPACE,
+                Typeface.BOLD
             )
             gravity = Gravity.CENTER
             setPadding(
                 dp(8), dp(10), dp(8), dp(10)
             )
-            setBackgroundColor(Color.rgb(65, 65, 73))
+            setBackgroundColor(
+                Color.rgb(65, 65, 73)
+            )
         }
+
         root.addView(header, full())
 
         val display = LinearLayout(this).apply {
@@ -518,39 +716,49 @@ class MainActivity : Activity() {
             setPadding(
                 dp(12), dp(8), dp(12), dp(6)
             )
-            setBackgroundColor(Color.rgb(5, 22, 13))
+            setBackgroundColor(
+                Color.rgb(5, 22, 13)
+            )
         }
+
         root.addView(display, full())
 
         cover = ImageView(this).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             setImageBitmap(defaultCover())
             contentDescription = "Capa do álbum"
-            setBackgroundColor(Color.rgb(7, 24, 14))
+            setBackgroundColor(
+                Color.rgb(7, 24, 14)
+            )
         }
 
         val coverSize = minOf(
             resources.displayMetrics.widthPixels - dp(72),
-            dp(215)
+            dp(210)
         )
 
         display.addView(
             cover,
             LinearLayout.LayoutParams(
-                coverSize, coverSize
+                coverSize,
+                coverSize
             ).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
                 bottomMargin = dp(6)
             }
         )
 
-        title = label("RETROAMP", green, 17f).apply {
+        title = label(
+            "RETROAMP", green, 17f
+        ).apply {
             gravity = Gravity.CENTER
             setTypeface(
-                Typeface.MONOSPACE, Typeface.BOLD
+                Typeface.MONOSPACE,
+                Typeface.BOLD
             )
             maxLines = 2
         }
+
         display.addView(title, full())
 
         artist = label(
@@ -560,6 +768,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             maxLines = 2
         }
+
         display.addView(artist, full())
 
         album = label(
@@ -569,9 +778,11 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             maxLines = 2
         }
+
         display.addView(album, full())
 
-        // Equalizador animado de 24 barras.
+        // EQUALIZADOR ANIMADO
+
         val equalizer = object : View(this) {
 
             private val paint = Paint(
@@ -580,7 +791,9 @@ class MainActivity : Activity() {
                 color = green
             }
 
-            private val bars = FloatArray(24) { 0.08f }
+            private val bars = FloatArray(24) {
+                0.08f
+            }
 
             override fun onDraw(canvas: Canvas) {
                 super.onDraw(canvas)
@@ -605,7 +818,8 @@ class MainActivity : Activity() {
                     ) * 0.45f
 
                     val left = i * (barWidth + gap)
-                    val top = height - bars[i] * maxHeight
+                    val top =
+                        height - bars[i] * maxHeight
 
                     canvas.drawRect(
                         left,
@@ -623,25 +837,30 @@ class MainActivity : Activity() {
         display.addView(
             equalizer,
             LinearLayout.LayoutParams(
-                -1, dp(48)
+                -1, dp(45)
             ).apply {
                 topMargin = dp(6)
             }
         )
 
         time = label(
-            "00:00 / 00:00", green, 13f
+            "00:00 / 00:00",
+            green, 13f
         ).apply {
             gravity = Gravity.CENTER
             typeface = Typeface.MONOSPACE
         }
+
         root.addView(time, full())
 
         seek = SeekBar(this).apply {
             max = 1000
-            progressTintList = ColorStateList.valueOf(green)
-            thumbTintList = ColorStateList.valueOf(green)
+            progressTintList =
+                ColorStateList.valueOf(green)
+            thumbTintList =
+                ColorStateList.valueOf(green)
         }
+
         root.addView(seek, full())
 
         seek.setOnSeekBarChangeListener(
@@ -679,6 +898,7 @@ class MainActivity : Activity() {
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
+
         root.addView(controls, full())
 
         fun control(
@@ -690,9 +910,10 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             isAllCaps = false
 
-            backgroundTintList = ColorStateList.valueOf(
-                Color.rgb(75, 75, 84)
-            )
+            backgroundTintList =
+                ColorStateList.valueOf(
+                    Color.rgb(75, 75, 84)
+                )
 
             controls.addView(
                 this,
@@ -727,6 +948,7 @@ class MainActivity : Activity() {
         val options = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
+
         root.addView(options, full())
 
         val add = Button(this).apply {
@@ -761,7 +983,9 @@ class MainActivity : Activity() {
                 } else {
                     "SHUFFLE OFF"
                 }
+
                 saveOptions()
+
                 if (serviceRunning()) {
                     command(MusicService.REFRESH)
                 }
@@ -792,7 +1016,9 @@ class MainActivity : Activity() {
                 } else {
                     "REPEAT OFF"
                 }
+
                 saveOptions()
+
                 if (serviceRunning()) {
                     command(MusicService.REFRESH)
                 }
@@ -806,18 +1032,21 @@ class MainActivity : Activity() {
             )
         )
 
-        // Nova área de biblioteca musical.
+        // BIBLIOTECA E BOTÕES
+
         val libraryBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.rgb(65, 65, 73))
+            setBackgroundColor(
+                Color.rgb(65, 65, 73)
+            )
         }
 
         root.addView(libraryBar, full())
 
         libraryStatus = label(
-            "${tracks.size} músicas na biblioteca",
-            silver, 12f
+            "${tracks.size} músicas",
+            silver, 11f
         )
 
         libraryBar.addView(
@@ -828,10 +1057,11 @@ class MainActivity : Activity() {
         )
 
         scanButton = Button(this).apply {
-            text = "⟳ AUTO SCAN"
-            textSize = 11f
+            text = "⟳ SCAN"
+            textSize = 10f
             isAllCaps = false
             setTextColor(green)
+
             setOnClickListener {
                 requestAudioScan()
             }
@@ -840,12 +1070,34 @@ class MainActivity : Activity() {
         libraryBar.addView(
             scanButton,
             LinearLayout.LayoutParams(
-                dp(125), dp(45)
+                dp(90), dp(45)
+            )
+        )
+
+        val clearButton = Button(this).apply {
+            text = "LIMPAR"
+            textSize = 10f
+            isAllCaps = false
+            setTextColor(
+                Color.rgb(255, 155, 155)
+            )
+
+            setOnClickListener {
+                confirmClearPlaylist()
+            }
+        }
+
+        libraryBar.addView(
+            clearButton,
+            LinearLayout.LayoutParams(
+                dp(85), dp(45)
             )
         )
 
         val scroll = ScrollView(this).apply {
-            setBackgroundColor(Color.rgb(11, 19, 13))
+            setBackgroundColor(
+                Color.rgb(11, 19, 13)
+            )
         }
 
         root.addView(
@@ -858,6 +1110,7 @@ class MainActivity : Activity() {
         playlist = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
+
         scroll.addView(playlist)
 
         if (index in tracks.indices) {
@@ -869,8 +1122,8 @@ class MainActivity : Activity() {
 
         root.addView(
             label(
-                "RETROAMP 1.5  •  AUTO SCAN",
-                silver, 11f
+                "RETROAMP 1.5  •  PLAYLIST CONTROL",
+                silver, 10f
             ).apply {
                 gravity = Gravity.CENTER
             },
@@ -891,8 +1144,6 @@ class MainActivity : Activity() {
             )
         }
 
-        // Primeira abertura da versão 1.5:
-        // pede autorização e faz a busca automaticamente.
         if (!prefs().getBoolean("auto_scan_done", false)) {
             handler.postDelayed({
                 if (!isFinishing && !isDestroyed) {
@@ -905,7 +1156,9 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
 
-        val filter = IntentFilter(MusicService.UPDATE)
+        val filter = IntentFilter(
+            MusicService.UPDATE
+        )
 
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(
@@ -917,15 +1170,21 @@ class MainActivity : Activity() {
             registerReceiver(receiver, filter)
         }
 
+        receiverRegistered = true
+
         if (serviceRunning()) {
             command(MusicService.REFRESH)
         }
     }
 
     override fun onStop() {
-        try {
-            unregisterReceiver(receiver)
-        } catch (_: Exception) {}
+        if (receiverRegistered) {
+            try {
+                unregisterReceiver(receiver)
+            } catch (_: Exception) {}
+
+            receiverRegistered = false
+        }
 
         super.onStop()
     }
@@ -939,10 +1198,14 @@ class MainActivity : Activity() {
         val intent = Intent(
             Intent.ACTION_OPEN_DOCUMENT
         ).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
+            addCategory(
+                Intent.CATEGORY_OPENABLE
+            )
             type = "audio/*"
+
             putExtra(
-                Intent.EXTRA_ALLOW_MULTIPLE, true
+                Intent.EXTRA_ALLOW_MULTIPLE,
+                true
             )
         }
 
@@ -969,7 +1232,9 @@ class MainActivity : Activity() {
 
         data.clipData?.let {
             for (i in 0 until it.itemCount) {
-                uris.add(it.getItemAt(i).uri)
+                uris.add(
+                    it.getItemAt(i).uri
+                )
             }
         }
 
@@ -1000,23 +1265,25 @@ class MainActivity : Activity() {
 
         savePlaylist()
         refreshPlaylist()
-
-        libraryStatus.text =
-            "${tracks.size} músicas na biblioteca"
+        updateLibraryStatus()
 
         if (serviceRunning()) {
             command(MusicService.REFRESH)
         }
 
         if (index == -1 && tracks.isNotEmpty()) {
-            command(MusicService.PLAY_INDEX, 0)
+            command(
+                MusicService.PLAY_INDEX, 0
+            )
         }
     }
 
     private fun queryName(uri: Uri): String {
         contentResolver.query(
             uri,
-            arrayOf(OpenableColumns.DISPLAY_NAME),
+            arrayOf(
+                OpenableColumns.DISPLAY_NAME
+            ),
             null, null, null
         )?.use { cursor ->
             if (cursor.moveToFirst()) {
@@ -1028,6 +1295,8 @@ class MainActivity : Activity() {
         return uri.lastPathSegment ?: "Unknown track"
     }
 
+    // PLAYLIST COM BOTÃO DE REMOVER
+
     private fun refreshPlaylist() {
         playlist.removeAllViews()
 
@@ -1038,24 +1307,32 @@ class MainActivity : Activity() {
                     green, 14f
                 )
             )
+            return
         }
 
         tracks.forEachIndexed { i, track ->
-            val row = label(
-                "  ${i + 1}. ${track.first}",
-                if (i == index) Color.WHITE else green,
-                14f
-            ).apply {
-                setPadding(
-                    dp(7), dp(10), dp(7), dp(10)
-                )
-                typeface = Typeface.MONOSPACE
+
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
 
                 if (i == index) {
                     setBackgroundColor(
                         Color.rgb(47, 83, 55)
                     )
                 }
+            }
+
+            val songLabel = label(
+                "${i + 1}. ${track.first}",
+                if (i == index) Color.WHITE else green,
+                13f
+            ).apply {
+                typeface = Typeface.MONOSPACE
+                setPadding(
+                    dp(10), dp(9), dp(4), dp(9)
+                )
+                maxLines = 2
 
                 setOnClickListener {
                     command(
@@ -1063,6 +1340,41 @@ class MainActivity : Activity() {
                     )
                 }
             }
+
+            row.addView(
+                songLabel,
+                LinearLayout.LayoutParams(
+                    0, -2, 1f
+                )
+            )
+
+            val removeButton = Button(this).apply {
+                text = "✕"
+                textSize = 17f
+                isAllCaps = false
+                setTextColor(
+                    Color.rgb(255, 155, 155)
+                )
+
+                contentDescription =
+                    "Remover ${track.first}"
+
+                backgroundTintList =
+                    ColorStateList.valueOf(
+                        Color.rgb(55, 55, 60)
+                    )
+
+                setOnClickListener {
+                    confirmRemove(i)
+                }
+            }
+
+            row.addView(
+                removeButton,
+                LinearLayout.LayoutParams(
+                    dp(48), dp(44)
+                )
+            )
 
             playlist.addView(row, full())
         }
@@ -1089,8 +1401,13 @@ class MainActivity : Activity() {
     }
 
     private fun full() =
-        LinearLayout.LayoutParams(-1, -2)
+        LinearLayout.LayoutParams(
+            -1, -2
+        )
 
     private fun dp(value: Int) =
-        (value * resources.displayMetrics.density).toInt()
+        (
+            value *
+                resources.displayMetrics.density
+            ).toInt()
 }
