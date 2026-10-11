@@ -1,18 +1,17 @@
 
 package com.retroamp.player
 
+import android.Manifest
 import android.app.Activity
-import android.content.Intent
+import android.content.*
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
-import android.media.MediaPlayer
 import android.net.Uri
-import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
+import android.os.*
 import android.provider.OpenableColumns
 import android.view.Gravity
 import android.view.View
@@ -28,13 +27,15 @@ class MainActivity : Activity() {
     private val silver = Color.rgb(207, 207, 213)
 
     private val tracks = mutableListOf<Pair<String, Uri>>()
+
     private var index = -1
-    private var player: MediaPlayer? = null
     private var shuffle = false
     private var repeat = false
     private var seeking = false
-    private var prepared = false
-    private var savedPosition = 0
+    private var playing = false
+    private var ready = false
+    private var currentPosition = 0
+    private var currentDuration = 0
 
     private lateinit var title: TextView
     private lateinit var time: TextView
@@ -44,88 +45,139 @@ class MainActivity : Activity() {
 
     private val handler = Handler(Looper.getMainLooper())
 
-    private val ticker = object : Runnable {
-        override fun run() {
-            val p = player
-            if (p != null && prepared) {
-                try {
-                    if (!seeking) {
-                        seek.progress =
-                            p.currentPosition.coerceAtMost(seek.max)
-                    }
-                    time.text =
-                        "${fmt(p.currentPosition)} / ${fmt(p.duration.coerceAtLeast(0))}"
-                } catch (_: IllegalStateException) {}
+    private val receiver = object : BroadcastReceiver() {
+        override fun onReceive(
+            context: Context?,
+            intent: Intent?
+        ) {
+            if (intent?.action != MusicService.UPDATE) return
+
+            val newIndex = intent.getIntExtra(
+                MusicService.EXTRA_INDEX, -1
+            )
+
+            val changed = newIndex != index
+            index = newIndex
+
+            playing = intent.getBooleanExtra(
+                MusicService.EXTRA_PLAYING, false
+            )
+
+            ready = intent.getBooleanExtra(
+                MusicService.EXTRA_READY, false
+            )
+
+            currentPosition = intent.getIntExtra(
+                MusicService.EXTRA_POSITION, 0
+            )
+
+            currentDuration = intent.getIntExtra(
+                MusicService.EXTRA_DURATION, 0
+            )
+
+            title.text = intent.getStringExtra(
+                MusicService.EXTRA_TITLE
+            )?.uppercase(Locale.getDefault()) ?: "RETROAMP"
+
+            playButton.text = if (playing) "Ⅱ" else "▶"
+
+            seek.max = currentDuration.coerceAtLeast(1)
+
+            if (!seeking) {
+                seek.progress = currentPosition
             }
-            handler.postDelayed(this, 500)
+
+            time.text =
+                "${fmt(currentPosition)} / ${fmt(currentDuration)}"
+
+            if (changed) {
+                refreshPlaylist()
+            }
         }
+    }
+
+    private fun prefs() =
+        getSharedPreferences("MainActivity", MODE_PRIVATE)
+
+    private fun loadPlaylist() {
+        tracks.clear()
+
+        try {
+            val array = JSONArray(
+                prefs().getString("saved_playlist", "[]") ?: "[]"
+            )
+
+            for (i in 0 until array.length()) {
+                val item = array.getJSONObject(i)
+
+                tracks.add(
+                    item.getString("name") to
+                        Uri.parse(item.getString("uri"))
+                )
+            }
+        } catch (_: Exception) {}
+
+        index = prefs().getInt("saved_index", -1)
+        if (index !in tracks.indices) index = -1
+
+        shuffle = prefs().getBoolean("shuffle", false)
+        repeat = prefs().getBoolean("repeat", false)
+
+        currentPosition =
+            prefs().getInt("saved_position", 0)
     }
 
     private fun savePlaylist() {
         val array = JSONArray()
 
         tracks.forEach { (name, uri) ->
-            array.put(JSONObject().apply {
-                put("name", name)
-                put("uri", uri.toString())
-            })
+            array.put(
+                JSONObject().apply {
+                    put("name", name)
+                    put("uri", uri.toString())
+                }
+            )
         }
 
-        getPreferences(MODE_PRIVATE).edit()
+        prefs().edit()
             .putString("saved_playlist", array.toString())
-            .putInt("saved_index", index)
             .apply()
-    }
-
-    private fun savePlaybackState() {
-        val position = try {
-            if (prepared) player?.currentPosition ?: savedPosition
-            else savedPosition
-        } catch (_: Exception) {
-            savedPosition
-        }
-
-        getPreferences(MODE_PRIVATE).edit()
-            .putInt("saved_position", position)
-            .putInt("saved_index", index)
-            .apply()
-    }
-
-    private fun loadPlaylist() {
-        val prefs = getPreferences(MODE_PRIVATE)
-        val saved = prefs.getString("saved_playlist", "[]") ?: "[]"
-
-        tracks.clear()
-
-        try {
-            val array = JSONArray(saved)
-
-            for (i in 0 until array.length()) {
-                val item = array.getJSONObject(i)
-                val name = item.getString("name")
-                val uri = Uri.parse(item.getString("uri"))
-
-                tracks.add(name to uri)
-            }
-        } catch (_: Exception) {
-            tracks.clear()
-        }
-
-        index = prefs.getInt("saved_index", -1)
-        if (index !in tracks.indices) index = -1
-
-        savedPosition = prefs.getInt("saved_position", 0)
-            .coerceAtLeast(0)
-
-        shuffle = prefs.getBoolean("shuffle", false)
-        repeat = prefs.getBoolean("repeat", false)
     }
 
     private fun saveOptions() {
-        getPreferences(MODE_PRIVATE).edit()
+        prefs().edit()
             .putBoolean("shuffle", shuffle)
             .putBoolean("repeat", repeat)
             .apply()
+    }
+
+    private fun command(
+        action: String,
+        extra: Int? = null,
+        extraName: String = MusicService.EXTRA_INDEX
+    ) {
+        val intent = Intent(
+            this, MusicService::class.java
+        ).apply {
+            this.action = action
+
+            if (extra != null) {
+                putExtra(extraName, extra)
+            }
+        }
+
+        if (action == MusicService.PLAY ||
+            action == MusicService.PLAY_INDEX ||
+            action == MusicService.TOGGLE
+        ) {
+            if (Build.VERSION.SDK_INT >= 26) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } else {
+            startService(intent)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -188,12 +240,6 @@ class MainActivity : Activity() {
                     ((width - gap * 23) / 24f).coerceAtLeast(1f)
                 val maxHeight = height * 0.85f
 
-                val playing = try {
-                    prepared && player?.isPlaying == true
-                } catch (_: IllegalStateException) {
-                    false
-                }
-
                 for (i in bars.indices) {
                     val target = if (playing) {
                         Random.nextFloat() * 0.85f + 0.15f
@@ -238,13 +284,11 @@ class MainActivity : Activity() {
                 }
 
                 override fun onStopTrackingTouch(s: SeekBar?) {
-                    if (prepared) {
-                        try {
-                            player?.seekTo(seek.progress)
-                            savedPosition = seek.progress
-                            savePlaybackState()
-                        } catch (_: Exception) {}
-                    }
+                    command(
+                        MusicService.SEEK,
+                        seek.progress,
+                        MusicService.EXTRA_POSITION
+                    )
                     seeking = false
                 }
 
@@ -277,10 +321,25 @@ class MainActivity : Activity() {
                 setOnClickListener { action() }
             }
 
-        control("|◀") { move(-1) }
-        playButton = control("▶") { toggle() }
-        control("■") { stop() }
-        control("▶|") { move(1) }
+        control("|◀") {
+            command(MusicService.PREVIOUS)
+        }
+
+        playButton = control("▶") {
+            if (tracks.isEmpty()) {
+                pickAudio()
+            } else {
+                command(MusicService.TOGGLE)
+            }
+        }
+
+        control("■") {
+            command(MusicService.STOP)
+        }
+
+        control("▶|") {
+            command(MusicService.NEXT)
+        }
 
         val options = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -304,8 +363,10 @@ class MainActivity : Activity() {
             isAllCaps = false
             setOnClickListener {
                 shuffle = !shuffle
-                text = if (shuffle) "SHUFFLE ON" else "SHUFFLE OFF"
+                text = if (shuffle) "SHUFFLE ON"
+                else "SHUFFLE OFF"
                 saveOptions()
+                command(MusicService.REFRESH)
             }
         }
         options.addView(
@@ -319,8 +380,10 @@ class MainActivity : Activity() {
             isAllCaps = false
             setOnClickListener {
                 repeat = !repeat
-                text = if (repeat) "REPEAT ON" else "REPEAT OFF"
+                text = if (repeat) "REPEAT ON"
+                else "REPEAT OFF"
                 saveOptions()
+                command(MusicService.REFRESH)
             }
         }
         options.addView(
@@ -352,27 +415,79 @@ class MainActivity : Activity() {
         if (index in tracks.indices) {
             title.text =
                 tracks[index].first.uppercase(Locale.getDefault())
-            time.text = "${fmt(savedPosition)} / --:--"
         }
 
         refreshPlaylist()
 
         root.addView(
-            label("RETROAMP 1.2  •  LOCAL AUDIO", silver, 11f).apply {
+            label("RETROAMP 1.3  •  LOCAL AUDIO", silver, 11f).apply {
                 gravity = Gravity.CENTER
             },
             full()
         )
 
-        handler.post(ticker)
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                200
+            )
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+
+        val filter = IntentFilter(MusicService.UPDATE)
+
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(
+                receiver,
+                filter,
+                Context.RECEIVER_NOT_EXPORTED
+            )
+        } else {
+            registerReceiver(receiver, filter)
+        }
+
+        // Consulta o serviço caso já esteja em execução.
+        // Evita iniciar uma segunda reprodução.
+        val manager = getSystemService(
+            Activity.ACTIVITY_SERVICE
+        ) as android.app.ActivityManager
+
+        val running = manager.getRunningServices(
+            Int.MAX_VALUE
+        ).any {
+            it.service.className ==
+                MusicService::class.java.name
+        }
+
+        if (running) {
+            command(MusicService.REFRESH)
+        }
+    }
+
+    override fun onStop() {
+        try {
+            unregisterReceiver(receiver)
+        } catch (_: Exception) {}
+
+        super.onStop()
     }
 
     private fun pickAudio() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        val intent = Intent(
+            Intent.ACTION_OPEN_DOCUMENT
+        ).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "audio/*"
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
+
         startActivityForResult(intent, 100)
     }
 
@@ -382,7 +497,9 @@ class MainActivity : Activity() {
         resultCode: Int,
         data: Intent?
     ) {
-        super.onActivityResult(requestCode, resultCode, data)
+        super.onActivityResult(
+            requestCode, resultCode, data
+        )
 
         if (requestCode != 100 ||
             resultCode != RESULT_OK ||
@@ -423,8 +540,13 @@ class MainActivity : Activity() {
         savePlaylist()
         refreshPlaylist()
 
+        command(MusicService.REFRESH)
+
         if (index == -1 && tracks.isNotEmpty()) {
-            playAt(0)
+            command(
+                MusicService.PLAY_INDEX,
+                0
+            )
         }
     }
 
@@ -435,9 +557,11 @@ class MainActivity : Activity() {
             null, null, null
         )?.use { cursor ->
             if (cursor.moveToFirst()) {
-                return cursor.getString(0) ?: "Unknown track"
+                return cursor.getString(0)
+                    ?: "Unknown track"
             }
         }
+
         return uri.lastPathSegment ?: "Unknown track"
     }
 
@@ -446,7 +570,10 @@ class MainActivity : Activity() {
 
         if (tracks.isEmpty()) {
             playlist.addView(
-                label("  Playlist empty. Tap + ADD MP3", green, 14f)
+                label(
+                    "  Playlist empty. Tap + ADD MP3",
+                    green, 14f
+                )
             )
         }
 
@@ -456,163 +583,26 @@ class MainActivity : Activity() {
                 if (i == index) Color.WHITE else green,
                 14f
             ).apply {
-                setPadding(dp(7), dp(11), dp(7), dp(11))
+                setPadding(
+                    dp(7), dp(11), dp(7), dp(11)
+                )
                 typeface = Typeface.MONOSPACE
 
                 if (i == index) {
-                    setBackgroundColor(Color.rgb(47, 83, 55))
-                }
-
-                setOnClickListener { playAt(i) }
-            }
-            playlist.addView(row, full())
-        }
-    }
-
-    private fun playAt(i: Int, restorePosition: Boolean = false) {
-        if (i !in tracks.indices) return
-
-        prepared = false
-        player?.release()
-        player = null
-        index = i
-
-        if (!restorePosition) {
-            savedPosition = 0
-        }
-
-        savePlaylist()
-        savePlaybackState()
-
-        seek.progress = 0
-        playButton.text = "▶"
-        time.text = "00:00 / 00:00"
-
-        try {
-            val p = MediaPlayer()
-            p.setDataSource(this, tracks[i].second)
-
-            p.setOnPreparedListener {
-                prepared = true
-                seek.max = it.duration.coerceAtLeast(1)
-
-                if (restorePosition && savedPosition > 0) {
-                    val position = savedPosition.coerceIn(
-                        0,
-                        (it.duration - 1000).coerceAtLeast(0)
+                    setBackgroundColor(
+                        Color.rgb(47, 83, 55)
                     )
-                    it.seekTo(position)
                 }
 
-                it.start()
-                playButton.text = "Ⅱ"
-            }
-
-            p.setOnCompletionListener {
-                savedPosition = 0
-                savePlaybackState()
-
-                if (repeat) {
-                    playAt(index)
-                } else {
-                    move(1)
+                setOnClickListener {
+                    command(
+                        MusicService.PLAY_INDEX,
+                        i
+                    )
                 }
             }
 
-            p.setOnErrorListener { _, _, _ ->
-                prepared = false
-                playButton.text = "▶"
-                Toast.makeText(
-                    this,
-                    "Unable to play file",
-                    Toast.LENGTH_SHORT
-                ).show()
-                true
-            }
-
-            player = p
-            p.prepareAsync()
-
-            title.text =
-                tracks[i].first.uppercase(Locale.getDefault())
-            refreshPlaylist()
-
-        } catch (e: Exception) {
-            prepared = false
-            player?.release()
-            player = null
-            Toast.makeText(
-                this,
-                "Cannot open audio: ${e.message}",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
-    private fun toggle() {
-        val p = player
-
-        if (p == null) {
-            if (index in tracks.indices) {
-                playAt(index, restorePosition = true)
-            } else if (tracks.isNotEmpty()) {
-                playAt(0)
-            } else {
-                pickAudio()
-            }
-            return
-        }
-
-        if (!prepared) return
-
-        try {
-            if (p.isPlaying) {
-                p.pause()
-                playButton.text = "▶"
-                savePlaybackState()
-            } else {
-                p.start()
-                playButton.text = "Ⅱ"
-            }
-        } catch (_: IllegalStateException) {}
-    }
-
-    private fun stop() {
-        if (prepared) {
-            try {
-                player?.pause()
-                player?.seekTo(0)
-                seek.progress = 0
-                time.text =
-                    "00:00 / ${fmt(player?.duration ?: 0)}"
-            } catch (_: IllegalStateException) {}
-        }
-
-        savedPosition = 0
-        savePlaybackState()
-        playButton.text = "▶"
-    }
-
-    private fun move(delta: Int) {
-        if (tracks.isEmpty()) return
-
-        val next = if (shuffle && tracks.size > 1) {
-            tracks.indices.filter { it != index }.random()
-        } else {
-            index + delta
-        }
-
-        if (next in tracks.indices) {
-            playAt(next)
-        } else {
-            stop()
-
-            if (delta > 0) {
-                index = -1
-                savePlaylist()
-                savePlaybackState()
-                refreshPlaylist()
-            }
+            playlist.addView(row, full())
         }
     }
 
@@ -631,7 +621,9 @@ class MainActivity : Activity() {
         text = value
         setTextColor(color)
         textSize = size
-        setPadding(dp(4), dp(7), dp(4), dp(7))
+        setPadding(
+            dp(4), dp(7), dp(4), dp(7)
+        )
     }
 
     private fun full() =
@@ -639,21 +631,4 @@ class MainActivity : Activity() {
 
     private fun dp(value: Int) =
         (value * resources.displayMetrics.density).toInt()
-
-    override fun onPause() {
-        savePlaybackState()
-        super.onPause()
-    }
-
-    override fun onDestroy() {
-        savePlaybackState()
-        savePlaylist()
-
-        handler.removeCallbacks(ticker)
-        prepared = false
-        player?.release()
-        player = null
-
-        super.onDestroy()
-    }
 }
