@@ -15,6 +15,7 @@ import android.graphics.Typeface
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.*
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.view.Gravity
 import android.view.View
@@ -38,6 +39,7 @@ class MainActivity : Activity() {
     private var currentPosition = 0
     private var currentDuration = 0
     private var artworkRequest = 0
+    private var scanning = false
 
     private lateinit var title: TextView
     private lateinit var artist: TextView
@@ -47,7 +49,8 @@ class MainActivity : Activity() {
     private lateinit var seek: SeekBar
     private lateinit var playButton: Button
     private lateinit var cover: ImageView
-    private lateinit var equalizer: View
+    private lateinit var scanButton: Button
+    private lateinit var libraryStatus: TextView
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -62,7 +65,6 @@ class MainActivity : Activity() {
                 MusicService.EXTRA_INDEX, -1
             )
             val changed = newIndex != index
-
             index = newIndex
 
             playing = intent.getBooleanExtra(
@@ -182,6 +184,201 @@ class MainActivity : Activity() {
         }
     }
 
+    // AUTO SCAN 1.5
+
+    private fun audioPermission(): String {
+        return if (Build.VERSION.SDK_INT >= 33) {
+            Manifest.permission.READ_MEDIA_AUDIO
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+    }
+
+    private fun hasAudioPermission(): Boolean {
+        return checkSelfPermission(
+            audioPermission()
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun requestAudioScan() {
+        if (scanning) return
+
+        if (hasAudioPermission()) {
+            scanMusic()
+        } else {
+            requestPermissions(
+                arrayOf(audioPermission()),
+                301
+            )
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(
+            requestCode,
+            permissions,
+            grantResults
+        )
+
+        if (requestCode == 301) {
+            if (
+                grantResults.isNotEmpty() &&
+                grantResults[0] ==
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                scanMusic()
+            } else {
+                Toast.makeText(
+                    this,
+                    "Permita acesso aos áudios para usar o Auto Scan",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    private fun scanMusic() {
+        if (scanning || !hasAudioPermission()) return
+
+        scanning = true
+        scanButton.isEnabled = false
+        scanButton.text = "BUSCANDO..."
+        libraryStatus.text = "Procurando músicas no celular..."
+
+        Thread {
+            val found = mutableListOf<Pair<String, Uri>>()
+            var error: String? = null
+
+            try {
+                val collection =
+                    if (Build.VERSION.SDK_INT >= 29) {
+                        MediaStore.Audio.Media.getContentUri(
+                            MediaStore.VOLUME_EXTERNAL
+                        )
+                    } else {
+                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                    }
+
+                val projection = arrayOf(
+                    MediaStore.Audio.Media._ID,
+                    MediaStore.Audio.Media.DISPLAY_NAME
+                )
+
+                val selection =
+                    "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+
+                val order =
+                    "${MediaStore.Audio.Media.DISPLAY_NAME} COLLATE NOCASE ASC"
+
+                contentResolver.query(
+                    collection,
+                    projection,
+                    selection,
+                    null,
+                    order
+                )?.use { cursor ->
+
+                    val idColumn = cursor.getColumnIndexOrThrow(
+                        MediaStore.Audio.Media._ID
+                    )
+
+                    val nameColumn = cursor.getColumnIndexOrThrow(
+                        MediaStore.Audio.Media.DISPLAY_NAME
+                    )
+
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getLong(idColumn)
+                        val name = cursor.getString(nameColumn)
+                            ?: "Música $id"
+
+                        val uri = ContentUris.withAppendedId(
+                            collection, id
+                        )
+
+                        found.add(name to uri)
+                    }
+                }
+            } catch (e: Exception) {
+                error = e.message ?: "Erro ao buscar músicas"
+            }
+
+            val scanError = error
+
+            runOnUiThread {
+                scanning = false
+                scanButton.isEnabled = true
+                scanButton.text = "⟳ AUTO SCAN"
+
+                if (scanError != null) {
+                    libraryStatus.text =
+                        "Não foi possível concluir a busca"
+
+                    Toast.makeText(
+                        this,
+                        scanError,
+                        Toast.LENGTH_LONG
+                    ).show()
+
+                    return@runOnUiThread
+                }
+
+                // Preserva a playlist atual e adiciona
+                // apenas os arquivos que ainda não existem.
+                val existing = tracks.map {
+                    it.second.toString()
+                }.toMutableSet()
+
+                var added = 0
+
+                for (song in found) {
+                    if (existing.add(song.second.toString())) {
+                        tracks.add(song)
+                        added++
+                    }
+                }
+
+                savePlaylist()
+                refreshPlaylist()
+
+                // Avisa o serviço para recarregar a playlist.
+                // Não interrompe a música atual.
+                if (serviceRunning()) {
+                    command(MusicService.REFRESH)
+                }
+
+                libraryStatus.text =
+                    "${tracks.size} músicas na biblioteca"
+
+                prefs().edit()
+                    .putBoolean("auto_scan_done", true)
+                    .apply()
+
+                Toast.makeText(
+                    this,
+                    "$added novas músicas encontradas!",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }.start()
+    }
+
+    private fun serviceRunning(): Boolean {
+        val manager = getSystemService(
+            ACTIVITY_SERVICE
+        ) as android.app.ActivityManager
+
+        return manager.getRunningServices(
+            Int.MAX_VALUE
+        ).any {
+            it.service.className ==
+                MusicService::class.java.name
+        }
+    }
+
     private fun defaultCover(): Bitmap {
         val bitmap = Bitmap.createBitmap(
             480, 480, Bitmap.Config.ARGB_8888
@@ -271,7 +468,8 @@ class MainActivity : Activity() {
             }
 
             handler.post {
-                if (request == artworkRequest &&
+                if (
+                    request == artworkRequest &&
                     !isFinishing &&
                     !isDestroyed
                 ) {
@@ -318,7 +516,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(
-                dp(12), dp(10), dp(12), dp(8)
+                dp(12), dp(8), dp(12), dp(6)
             )
             setBackgroundColor(Color.rgb(5, 22, 13))
         }
@@ -333,7 +531,7 @@ class MainActivity : Activity() {
 
         val coverSize = minOf(
             resources.displayMetrics.widthPixels - dp(72),
-            dp(245)
+            dp(215)
         )
 
         display.addView(
@@ -342,7 +540,7 @@ class MainActivity : Activity() {
                 coverSize, coverSize
             ).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
-                bottomMargin = dp(8)
+                bottomMargin = dp(6)
             }
         )
 
@@ -373,9 +571,8 @@ class MainActivity : Activity() {
         }
         display.addView(album, full())
 
-        // Equalizador visual com 24 barras animadas.
-        // Mantém a animação clássica da versão 1.3.
-        equalizer = object : View(this) {
+        // Equalizador animado de 24 barras.
+        val equalizer = object : View(this) {
 
             private val paint = Paint(
                 Paint.ANTI_ALIAS_FLAG
@@ -383,9 +580,7 @@ class MainActivity : Activity() {
                 color = green
             }
 
-            private val bars = FloatArray(24) {
-                0.08f
-            }
+            private val bars = FloatArray(24) { 0.08f }
 
             override fun onDraw(canvas: Canvas) {
                 super.onDraw(canvas)
@@ -421,7 +616,6 @@ class MainActivity : Activity() {
                     )
                 }
 
-                // Redesenha a animação a cada 90 ms.
                 postInvalidateDelayed(90)
             }
         }
@@ -429,9 +623,9 @@ class MainActivity : Activity() {
         display.addView(
             equalizer,
             LinearLayout.LayoutParams(
-                -1, dp(55)
+                -1, dp(48)
             ).apply {
-                topMargin = dp(8)
+                topMargin = dp(6)
             }
         )
 
@@ -503,7 +697,7 @@ class MainActivity : Activity() {
             controls.addView(
                 this,
                 LinearLayout.LayoutParams(
-                    0, dp(52), 1f
+                    0, dp(50), 1f
                 )
             )
 
@@ -516,7 +710,7 @@ class MainActivity : Activity() {
 
         playButton = control("▶") {
             if (tracks.isEmpty()) {
-                pickAudio()
+                requestAudioScan()
             } else {
                 command(MusicService.TOGGLE)
             }
@@ -539,13 +733,14 @@ class MainActivity : Activity() {
             text = "+ ADD MP3"
             isAllCaps = false
             setTextColor(green)
+            textSize = 12f
             setOnClickListener { pickAudio() }
         }
 
         options.addView(
             add,
             LinearLayout.LayoutParams(
-                0, dp(50), 2f
+                0, dp(48), 2f
             )
         )
 
@@ -556,27 +751,27 @@ class MainActivity : Activity() {
                 "SHUFFLE OFF"
             }
 
-            textSize = 11f
+            textSize = 10f
             isAllCaps = false
 
             setOnClickListener {
                 shuffle = !shuffle
-
                 text = if (shuffle) {
                     "SHUFFLE ON"
                 } else {
                     "SHUFFLE OFF"
                 }
-
                 saveOptions()
-                command(MusicService.REFRESH)
+                if (serviceRunning()) {
+                    command(MusicService.REFRESH)
+                }
             }
         }
 
         options.addView(
             random,
             LinearLayout.LayoutParams(
-                0, dp(50), 1.5f
+                0, dp(48), 1.5f
             )
         )
 
@@ -587,43 +782,66 @@ class MainActivity : Activity() {
                 "REPEAT OFF"
             }
 
-            textSize = 11f
+            textSize = 10f
             isAllCaps = false
 
             setOnClickListener {
                 repeat = !repeat
-
                 text = if (repeat) {
                     "REPEAT ON"
                 } else {
                     "REPEAT OFF"
                 }
-
                 saveOptions()
-                command(MusicService.REFRESH)
+                if (serviceRunning()) {
+                    command(MusicService.REFRESH)
+                }
             }
         }
 
         options.addView(
             loop,
             LinearLayout.LayoutParams(
-                0, dp(50), 1.5f
+                0, dp(48), 1.5f
             )
         )
 
-        root.addView(
-            label(
-                "  PLAYLIST EDITOR",
-                silver, 14f
-            ).apply {
-                setBackgroundColor(
-                    Color.rgb(65, 65, 73)
-                )
-                setPadding(
-                    dp(4), dp(8), dp(4), dp(8)
-                )
-            },
-            full()
+        // Nova área de biblioteca musical.
+        val libraryBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.rgb(65, 65, 73))
+        }
+
+        root.addView(libraryBar, full())
+
+        libraryStatus = label(
+            "${tracks.size} músicas na biblioteca",
+            silver, 12f
+        )
+
+        libraryBar.addView(
+            libraryStatus,
+            LinearLayout.LayoutParams(
+                0, -2, 1f
+            )
+        )
+
+        scanButton = Button(this).apply {
+            text = "⟳ AUTO SCAN"
+            textSize = 11f
+            isAllCaps = false
+            setTextColor(green)
+            setOnClickListener {
+                requestAudioScan()
+            }
+        }
+
+        libraryBar.addView(
+            scanButton,
+            LinearLayout.LayoutParams(
+                dp(125), dp(45)
+            )
         )
 
         val scroll = ScrollView(this).apply {
@@ -651,7 +869,7 @@ class MainActivity : Activity() {
 
         root.addView(
             label(
-                "RETROAMP 1.4  •  LOCAL AUDIO",
+                "RETROAMP 1.5  •  AUTO SCAN",
                 silver, 11f
             ).apply {
                 gravity = Gravity.CENTER
@@ -672,6 +890,16 @@ class MainActivity : Activity() {
                 200
             )
         }
+
+        // Primeira abertura da versão 1.5:
+        // pede autorização e faz a busca automaticamente.
+        if (!prefs().getBoolean("auto_scan_done", false)) {
+            handler.postDelayed({
+                if (!isFinishing && !isDestroyed) {
+                    requestAudioScan()
+                }
+            }, 500)
+        }
     }
 
     override fun onStart() {
@@ -689,18 +917,7 @@ class MainActivity : Activity() {
             registerReceiver(receiver, filter)
         }
 
-        val manager = getSystemService(
-            ACTIVITY_SERVICE
-        ) as android.app.ActivityManager
-
-        val running = manager.getRunningServices(
-            Int.MAX_VALUE
-        ).any {
-            it.service.className ==
-                MusicService::class.java.name
-        }
-
-        if (running) {
+        if (serviceRunning()) {
             command(MusicService.REFRESH)
         }
     }
@@ -783,7 +1000,13 @@ class MainActivity : Activity() {
 
         savePlaylist()
         refreshPlaylist()
-        command(MusicService.REFRESH)
+
+        libraryStatus.text =
+            "${tracks.size} músicas na biblioteca"
+
+        if (serviceRunning()) {
+            command(MusicService.REFRESH)
+        }
 
         if (index == -1 && tracks.isNotEmpty()) {
             command(MusicService.PLAY_INDEX, 0)
@@ -811,7 +1034,7 @@ class MainActivity : Activity() {
         if (tracks.isEmpty()) {
             playlist.addView(
                 label(
-                    "  Playlist empty. Tap + ADD MP3",
+                    "  Nenhuma música. Use AUTO SCAN.",
                     green, 14f
                 )
             )
