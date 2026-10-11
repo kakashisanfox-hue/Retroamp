@@ -1,3 +1,4 @@
+
 package com.retroamp.player
 
 import android.app.*
@@ -36,6 +37,9 @@ class MusicService : Service() {
         const val REFRESH = "retroamp.REFRESH"
         const val UPDATE = "retroamp.UPDATE"
 
+        // Nova ação: dispensar notificação.
+        const val DISMISS = "retroamp.DISMISS"
+
         const val EXTRA_INDEX = "index"
         const val EXTRA_POSITION = "position"
         const val EXTRA_DURATION = "duration"
@@ -59,13 +63,14 @@ class MusicService : Service() {
     private var foreground = false
     private var started = false
     private var destroyed = false
+    private var closing = false
 
-    // Indica que o serviço deve continuar ativo
-    // mesmo durante a troca de músicas.
+    // Continua ativo durante a preparação
+    // e a troca automática de músicas.
     private var playbackRequested = false
 
-    // Identifica a reprodução atual e evita
-    // que callbacks antigos alterem o player novo.
+    // Impede callbacks antigos de interferirem
+    // na reprodução atual.
     private var generation = 0
 
     private var songTitle = "RetroAmp"
@@ -88,7 +93,7 @@ class MusicService : Service() {
 
     private val ticker = object : Runnable {
         override fun run() {
-            if (destroyed) return
+            if (destroyed || closing) return
 
             if (ready) {
                 broadcastUpdate()
@@ -177,7 +182,7 @@ class MusicService : Service() {
             songs.addAll(loaded)
 
         } catch (_: Exception) {
-            // Preserva a lista anterior.
+            // Mantém a lista anterior.
         }
 
         shuffle = prefs.getBoolean(
@@ -413,7 +418,7 @@ class MusicService : Service() {
             }
 
         } catch (_: Exception) {
-            // Metadados opcionais.
+            // Metadados são opcionais.
         } finally {
             try {
                 retriever.release()
@@ -443,6 +448,7 @@ class MusicService : Service() {
                 handler.post {
                     if (
                         destroyed ||
+                        closing ||
                         requestGeneration != generation
                     ) {
                         return@post
@@ -463,6 +469,8 @@ class MusicService : Service() {
         i: Int,
         restore: Boolean = false
     ) {
+        if (closing || destroyed) return
+
         loadSongs()
 
         if (i !in songs.indices) return
@@ -481,9 +489,6 @@ class MusicService : Service() {
         generation++
         val requestGeneration = generation
 
-        // IMPORTANTE:
-        // A intenção de reproduzir continua ativa
-        // durante toda a troca de música.
         playbackRequested = true
 
         releasePlayer()
@@ -536,6 +541,7 @@ class MusicService : Service() {
             p.setOnPreparedListener { prepared ->
                 if (
                     destroyed ||
+                    closing ||
                     requestGeneration != generation ||
                     player !== prepared
                 ) {
@@ -563,8 +569,6 @@ class MusicService : Service() {
                         )
                     }
 
-                    // Inicia automaticamente,
-                    // inclusive em segundo plano.
                     if (playbackRequested) {
                         prepared.start()
                     }
@@ -581,16 +585,17 @@ class MusicService : Service() {
             p.setOnCompletionListener { completed ->
                 if (
                     destroyed ||
+                    closing ||
                     requestGeneration != generation ||
                     player !== completed
                 ) {
                     return@setOnCompletionListener
                 }
 
-                // Troca somente após o callback terminar.
                 handler.post {
                     if (
                         !destroyed &&
+                        !closing &&
                         requestGeneration == generation &&
                         player === completed
                     ) {
@@ -606,6 +611,7 @@ class MusicService : Service() {
             p.setOnErrorListener { failed, _, _ ->
                 if (
                     !destroyed &&
+                    !closing &&
                     requestGeneration == generation &&
                     player === failed
                 ) {
@@ -624,10 +630,7 @@ class MusicService : Service() {
                 song.second
             )
 
-            // Mantém a notificação protegida
-            // ANTES de começar a preparação.
             updateAll()
-
             p.prepareAsync()
 
         } catch (_: Exception) {
@@ -642,6 +645,7 @@ class MusicService : Service() {
     ) {
         if (
             destroyed ||
+            closing ||
             requestGeneration != generation
         ) {
             return
@@ -663,6 +667,8 @@ class MusicService : Service() {
     }
 
     private fun resume() {
+        if (closing || destroyed) return
+
         playbackRequested = true
 
         if (ready) {
@@ -691,12 +697,15 @@ class MusicService : Service() {
                 playbackRequested = false
                 updateAll()
             }
+
         } else {
             updateAll()
         }
     }
 
     private fun pause() {
+        if (closing || destroyed) return
+
         playbackRequested = false
 
         if (ready) {
@@ -710,6 +719,8 @@ class MusicService : Service() {
     }
 
     private fun stop() {
+        if (closing || destroyed) return
+
         generation++
         playbackRequested = false
 
@@ -726,6 +737,8 @@ class MusicService : Service() {
     }
 
     private fun next() {
+        if (closing || destroyed) return
+
         loadSongs()
 
         if (songs.isEmpty()) {
@@ -752,6 +765,8 @@ class MusicService : Service() {
     }
 
     private fun previous() {
+        if (closing || destroyed) return
+
         loadSongs()
 
         if (songs.isEmpty()) {
@@ -778,7 +793,7 @@ class MusicService : Service() {
     }
 
     private fun seekTo(ms: Int) {
-        if (!ready) return
+        if (closing || destroyed || !ready) return
 
         try {
             player?.seekTo(
@@ -795,6 +810,8 @@ class MusicService : Service() {
     }
 
     private fun updateSession() {
+        if (destroyed || closing) return
+
         val metadata = MediaMetadata.Builder()
             .putString(
                 MediaMetadata.METADATA_KEY_TITLE,
@@ -909,9 +926,8 @@ class MusicService : Service() {
                     PendingIntent.FLAG_IMMUTABLE
             )
 
-        val playing = isPlaying()
-
-        val active = playbackRequested || preparing
+        val active =
+            playbackRequested || preparing || isPlaying()
 
         val builder =
             Notification.Builder(
@@ -930,6 +946,13 @@ class MusicService : Service() {
                 )
                 .setOnlyAlertOnce(true)
                 .setOngoing(active)
+
+                // Ao arrastar a notificação,
+                // solicita encerramento do serviço.
+                .setDeleteIntent(
+                    actionPending(DISMISS)
+                )
+
                 .addAction(
                     Notification.Action.Builder(
                         android.R.drawable.ic_media_previous,
@@ -979,12 +1002,10 @@ class MusicService : Service() {
     }
 
     private fun updateNotification() {
+        if (destroyed || closing) return
+
         val n = notification()
 
-        // CORREÇÃO 1.5.2:
-        // Não retirar o serviço do primeiro plano
-        // enquanto estiver reproduzindo OU preparando
-        // a próxima música.
         val keepForeground =
             playbackRequested || preparing || isPlaying()
 
@@ -1015,7 +1036,7 @@ class MusicService : Service() {
     }
 
     private fun broadcastUpdate() {
-        if (destroyed) return
+        if (destroyed || closing) return
 
         val intent = Intent(UPDATE).apply {
             setPackage(packageName)
@@ -1065,11 +1086,45 @@ class MusicService : Service() {
     }
 
     private fun updateAll() {
-        if (destroyed) return
+        if (destroyed || closing) return
 
         updateSession()
         updateNotification()
         broadcastUpdate()
+    }
+
+    // Encerra somente o serviço de reprodução.
+    // Não apaga músicas nem a playlist salva.
+    private fun dismissAndClose() {
+        if (closing || destroyed) return
+
+        // Salva antes de liberar o MediaPlayer.
+        savePosition()
+
+        closing = true
+        generation++
+        playbackRequested = false
+
+        handler.removeCallbacksAndMessages(null)
+
+        releasePlayer()
+
+        try {
+            if (foreground) {
+                stopForeground(
+                    STOP_FOREGROUND_REMOVE
+                )
+                foreground = false
+            }
+        } catch (_: Exception) {}
+
+        try {
+            getSystemService(
+                NotificationManager::class.java
+            ).cancel(NOTIFICATION_ID)
+        } catch (_: Exception) {}
+
+        stopSelf()
     }
 
     override fun onStartCommand(
@@ -1077,6 +1132,17 @@ class MusicService : Service() {
         flags: Int,
         startId: Int
     ): Int {
+
+        // A dispensa é tratada antes de qualquer
+        // tentativa de criar outra notificação.
+        if (intent?.action == DISMISS) {
+            dismissAndClose()
+            return START_NOT_STICKY
+        }
+
+        if (closing || destroyed) {
+            return START_NOT_STICKY
+        }
 
         if (!started) {
             startForeground(
@@ -1144,9 +1210,12 @@ class MusicService : Service() {
     ): IBinder? = null
 
     override fun onDestroy() {
-        savePosition()
+        if (!closing) {
+            savePosition()
+        }
 
         destroyed = true
+        closing = true
         generation++
         playbackRequested = false
 
@@ -1160,6 +1229,21 @@ class MusicService : Service() {
             session.isActive = false
             session.release()
         }
+
+        try {
+            if (foreground) {
+                stopForeground(
+                    STOP_FOREGROUND_REMOVE
+                )
+                foreground = false
+            }
+        } catch (_: Exception) {}
+
+        try {
+            getSystemService(
+                NotificationManager::class.java
+            ).cancel(NOTIFICATION_ID)
+        } catch (_: Exception) {}
 
         super.onDestroy()
     }
