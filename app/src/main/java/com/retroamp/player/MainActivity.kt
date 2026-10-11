@@ -28,6 +28,9 @@ class MainActivity : Activity() {
     private val silver = Color.rgb(207, 207, 213)
     private val tracks = mutableListOf<Pair<String, Uri>>()
 
+    // AUTO SCANNER: somente áudios com 2 minutos ou mais.
+    private val minimumScanDurationMs = 120_000L
+
     private var index = -1
     private var shuffle = false
     private var repeat = false
@@ -206,7 +209,7 @@ class MainActivity : Activity() {
             } else {
                 startService(intent)
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             Toast.makeText(
                 this,
                 "Não foi possível executar o comando",
@@ -241,8 +244,6 @@ class MainActivity : Activity() {
         val oldPosition = currentPosition
         val running = serviceRunning()
 
-        // Para evitar índices incorretos, interrompemos
-        // o serviço antes de modificar a lista.
         if (running) {
             stopService(
                 Intent(this, MusicService::class.java)
@@ -286,8 +287,6 @@ class MainActivity : Activity() {
 
         loadArtwork()
 
-        // Se outra faixa estava tocando, retoma a
-        // música correspondente ao novo índice.
         if (wasPlaying && index in tracks.indices) {
             handler.postDelayed({
                 if (!isFinishing && !isDestroyed) {
@@ -383,7 +382,7 @@ class MainActivity : Activity() {
             "${tracks.size} músicas na biblioteca"
     }
 
-    // AUTO SCAN
+    // AUTO SCAN COM FILTRO DE 2 MINUTOS
 
     private fun audioPermission(): String {
         return if (Build.VERSION.SDK_INT >= 33) {
@@ -446,7 +445,8 @@ class MainActivity : Activity() {
         scanning = true
         scanButton.isEnabled = false
         scanButton.text = "BUSCANDO..."
-        libraryStatus.text = "Buscando músicas..."
+        libraryStatus.text =
+            "Buscando músicas de 2 minutos ou mais..."
 
         Thread {
             val found = mutableListOf<Pair<String, Uri>>()
@@ -464,11 +464,19 @@ class MainActivity : Activity() {
 
                 val projection = arrayOf(
                     MediaStore.Audio.Media._ID,
-                    MediaStore.Audio.Media.DISPLAY_NAME
+                    MediaStore.Audio.Media.DISPLAY_NAME,
+                    MediaStore.Audio.Media.DURATION
                 )
 
+                // O arquivo precisa ser identificado como
+                // música E ter duração de pelo menos 120s.
                 val selection =
-                    "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+                    "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND " +
+                        "${MediaStore.Audio.Media.DURATION} >= ?"
+
+                val selectionArgs = arrayOf(
+                    minimumScanDurationMs.toString()
+                )
 
                 val order =
                     "${MediaStore.Audio.Media.DISPLAY_NAME} COLLATE NOCASE ASC"
@@ -477,7 +485,7 @@ class MainActivity : Activity() {
                     collection,
                     projection,
                     selection,
-                    null,
+                    selectionArgs,
                     order
                 )?.use { cursor ->
 
@@ -491,10 +499,26 @@ class MainActivity : Activity() {
                             MediaStore.Audio.Media.DISPLAY_NAME
                         )
 
+                    val durationColumn =
+                        cursor.getColumnIndexOrThrow(
+                            MediaStore.Audio.Media.DURATION
+                        )
+
                     while (cursor.moveToNext()) {
                         val id = cursor.getLong(idColumn)
+
                         val name = cursor.getString(nameColumn)
                             ?: "Música $id"
+
+                        val duration = cursor.getLong(
+                            durationColumn
+                        )
+
+                        // Proteção adicional: nunca adicionar
+                        // áudio com menos de 2 minutos.
+                        if (duration < minimumScanDurationMs) {
+                            continue
+                        }
 
                         val uri = ContentUris.withAppendedId(
                             collection,
@@ -504,6 +528,7 @@ class MainActivity : Activity() {
                         found.add(name to uri)
                     }
                 }
+
             } catch (e: Exception) {
                 error = e.message ?: "Erro no Auto Scan"
             }
@@ -558,7 +583,8 @@ class MainActivity : Activity() {
 
                 Toast.makeText(
                     this,
-                    "$added novas músicas encontradas!",
+                    "$added novas músicas encontradas! " +
+                        "Filtro: 2 minutos ou mais.",
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -1122,7 +1148,7 @@ class MainActivity : Activity() {
 
         root.addView(
             label(
-                "RETROAMP 1.5  •  PLAYLIST CONTROL",
+                "RETROAMP 1.5.4  •  SMART AUTO SCAN",
                 silver, 10f
             ).apply {
                 gravity = Gravity.CENTER
@@ -1258,6 +1284,8 @@ class MainActivity : Activity() {
                 uri.lastPathSegment ?: "Unknown track"
             }
 
+            // Arquivos adicionados manualmente não
+            // precisam ter 2 minutos.
             if (tracks.none { it.second == uri }) {
                 tracks.add(name to uri)
             }
