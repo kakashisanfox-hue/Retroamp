@@ -1,4 +1,3 @@
-
 package com.retroamp.player
 
 import android.app.*
@@ -19,7 +18,6 @@ import android.net.Uri
 import android.os.*
 import org.json.JSONArray
 import java.util.concurrent.Executors
-import kotlin.random.Random
 
 class MusicService : Service() {
 
@@ -62,8 +60,12 @@ class MusicService : Service() {
     private var started = false
     private var destroyed = false
 
-    // Cada nova tentativa de reprodução recebe
-    // uma identificação para ignorar callbacks antigos.
+    // Indica que o serviço deve continuar ativo
+    // mesmo durante a troca de músicas.
+    private var playbackRequested = false
+
+    // Identifica a reprodução atual e evita
+    // que callbacks antigos alterem o player novo.
     private var generation = 0
 
     private var songTitle = "RetroAmp"
@@ -75,8 +77,6 @@ class MusicService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
 
-    // Metadados e capas são processados fora
-    // da thread principal do Android.
     private val metadataExecutor =
         Executors.newSingleThreadExecutor()
 
@@ -111,6 +111,7 @@ class MusicService : Service() {
             )
 
             setCallback(object : MediaSession.Callback() {
+
                 override fun onPlay() {
                     handler.post { resume() }
                 }
@@ -176,21 +177,23 @@ class MusicService : Service() {
             songs.addAll(loaded)
 
         } catch (_: Exception) {
-            // Mantém a lista anterior se o JSON
-            // estiver temporariamente inválido.
+            // Preserva a lista anterior.
         }
 
         shuffle = prefs.getBoolean(
-            "shuffle", false
+            "shuffle",
+            false
         )
 
         repeat = prefs.getBoolean(
-            "repeat", false
+            "repeat",
+            false
         )
 
         if (currentIndex == -1) {
             currentIndex = prefs.getInt(
-                "saved_index", -1
+                "saved_index",
+                -1
             )
         }
     }
@@ -209,7 +212,8 @@ class MusicService : Service() {
                 player?.currentPosition ?: 0
             } else {
                 prefs.getInt(
-                    "saved_position", 0
+                    "saved_position",
+                    0
                 )
             }
         } catch (_: Exception) {
@@ -295,10 +299,12 @@ class MusicService : Service() {
         )
 
         paint.style = Paint.Style.FILL
+
         paint.typeface = Typeface.create(
             "monospace",
             Typeface.BOLD
         )
+
         paint.textAlign = Paint.Align.CENTER
 
         paint.textSize = 38f
@@ -341,7 +347,8 @@ class MusicService : Service() {
     ): TrackMetadata {
 
         var title = fileName.substringBeforeLast(
-            ".", fileName
+            ".",
+            fileName
         )
 
         var artist = "Artista desconhecido"
@@ -406,8 +413,7 @@ class MusicService : Service() {
             }
 
         } catch (_: Exception) {
-            // Metadados não devem impedir
-            // a reprodução da música.
+            // Metadados opcionais.
         } finally {
             try {
                 retriever.release()
@@ -427,28 +433,30 @@ class MusicService : Service() {
         fileName: String,
         requestGeneration: Int
     ) {
-        metadataExecutor.execute {
-            val result = readMetadata(
-                uri,
-                fileName
-            )
+        try {
+            metadataExecutor.execute {
+                val result = readMetadata(
+                    uri,
+                    fileName
+                )
 
-            handler.post {
-                if (
-                    destroyed ||
-                    requestGeneration != generation
-                ) {
-                    return@post
+                handler.post {
+                    if (
+                        destroyed ||
+                        requestGeneration != generation
+                    ) {
+                        return@post
+                    }
+
+                    songTitle = result.title
+                    songArtist = result.artist
+                    songAlbum = result.album
+                    albumArt = result.artwork
+
+                    updateAll()
                 }
-
-                songTitle = result.title
-                songArtist = result.artist
-                songAlbum = result.album
-                albumArt = result.artwork
-
-                updateAll()
             }
-        }
+        } catch (_: Exception) {}
     }
 
     private fun playIndex(
@@ -457,15 +465,14 @@ class MusicService : Service() {
     ) {
         loadSongs()
 
-        if (i !in songs.indices) {
-            return
-        }
+        if (i !in songs.indices) return
 
         val song = songs[i]
 
         val resumePosition = if (restore) {
             prefs.getInt(
-                "saved_position", 0
+                "saved_position",
+                0
             )
         } else {
             0
@@ -474,14 +481,19 @@ class MusicService : Service() {
         generation++
         val requestGeneration = generation
 
-        // Libera o player antigo antes de criar outro.
+        // IMPORTANTE:
+        // A intenção de reproduzir continua ativa
+        // durante toda a troca de música.
+        playbackRequested = true
+
         releasePlayer()
 
         currentIndex = i
         preparing = true
 
         songTitle = song.first.substringBeforeLast(
-            ".", song.first
+            ".",
+            song.first
         )
 
         songArtist = "Artista desconhecido"
@@ -489,14 +501,16 @@ class MusicService : Service() {
         albumArt = null
 
         prefs.edit()
-            .putInt("saved_index", i)
+            .putInt(
+                "saved_index",
+                i
+            )
             .putInt(
                 "saved_position",
                 resumePosition
             )
             .apply()
 
-        // Leitura de capa e tags em segundo plano.
         loadMetadataAsync(
             song.second,
             song.first,
@@ -544,10 +558,17 @@ class MusicService : Service() {
                                 ).coerceAtLeast(0)
                             )
 
-                        prepared.seekTo(safePosition)
+                        prepared.seekTo(
+                            safePosition
+                        )
                     }
 
-                    prepared.start()
+                    // Inicia automaticamente,
+                    // inclusive em segundo plano.
+                    if (playbackRequested) {
+                        prepared.start()
+                    }
+
                     updateAll()
 
                 } catch (_: Exception) {
@@ -566,8 +587,7 @@ class MusicService : Service() {
                     return@setOnCompletionListener
                 }
 
-                // Evita substituir o MediaPlayer
-                // dentro do próprio callback de término.
+                // Troca somente após o callback terminar.
                 handler.post {
                     if (
                         !destroyed &&
@@ -604,8 +624,11 @@ class MusicService : Service() {
                 song.second
             )
 
-            p.prepareAsync()
+            // Mantém a notificação protegida
+            // ANTES de começar a preparação.
             updateAll()
+
+            p.prepareAsync()
 
         } catch (_: Exception) {
             handlePlaybackError(
@@ -625,25 +648,29 @@ class MusicService : Service() {
         }
 
         generation++
+        playbackRequested = false
+
         releasePlayer()
 
         prefs.edit()
-            .putInt("saved_position", 0)
+            .putInt(
+                "saved_position",
+                0
+            )
             .apply()
 
         updateAll()
-
-        // Um arquivo inválido não deve
-        // provocar um ciclo infinito de tentativas.
-        // A reprodução fica parada para o usuário
-        // escolher outra música.
     }
 
     private fun resume() {
+        playbackRequested = true
+
         if (ready) {
             try {
                 player?.start()
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+                playbackRequested = false
+            }
 
             updateAll()
 
@@ -660,11 +687,18 @@ class MusicService : Service() {
 
             if (i in songs.indices) {
                 playIndex(i, true)
+            } else {
+                playbackRequested = false
+                updateAll()
             }
+        } else {
+            updateAll()
         }
     }
 
     private fun pause() {
+        playbackRequested = false
+
         if (ready) {
             try {
                 player?.pause()
@@ -676,14 +710,15 @@ class MusicService : Service() {
     }
 
     private fun stop() {
-        // Cancela preparações pendentes também.
         generation++
+        playbackRequested = false
 
         releasePlayer()
 
         prefs.edit()
             .putInt(
-                "saved_position", 0
+                "saved_position",
+                0
             )
             .apply()
 
@@ -791,6 +826,12 @@ class MusicService : Service() {
 
         val playing = isPlaying()
 
+        val state = when {
+            playing -> PlaybackState.STATE_PLAYING
+            preparing -> PlaybackState.STATE_BUFFERING
+            else -> PlaybackState.STATE_PAUSED
+        }
+
         session.setPlaybackState(
             PlaybackState.Builder()
                 .setActions(
@@ -803,11 +844,7 @@ class MusicService : Service() {
                         PlaybackState.ACTION_STOP
                 )
                 .setState(
-                    if (playing) {
-                        PlaybackState.STATE_PLAYING
-                    } else {
-                        PlaybackState.STATE_PAUSED
-                    },
+                    state,
                     position().toLong(),
                     if (playing) 1f else 0f
                 )
@@ -829,7 +866,9 @@ class MusicService : Service() {
 
         getSystemService(
             NotificationManager::class.java
-        ).createNotificationChannel(channel)
+        ).createNotificationChannel(
+            channel
+        )
     }
 
     private fun actionPending(
@@ -872,6 +911,8 @@ class MusicService : Service() {
 
         val playing = isPlaying()
 
+        val active = playbackRequested || preparing
+
         val builder =
             Notification.Builder(
                 this,
@@ -888,7 +929,7 @@ class MusicService : Service() {
                     Notification.VISIBILITY_PUBLIC
                 )
                 .setOnlyAlertOnce(true)
-                .setOngoing(playing)
+                .setOngoing(active)
                 .addAction(
                     Notification.Action.Builder(
                         android.R.drawable.ic_media_previous,
@@ -898,18 +939,18 @@ class MusicService : Service() {
                 )
                 .addAction(
                     Notification.Action.Builder(
-                        if (playing) {
+                        if (active) {
                             android.R.drawable.ic_media_pause
                         } else {
                             android.R.drawable.ic_media_play
                         },
-                        if (playing) {
+                        if (active) {
                             "Pausar"
                         } else {
                             "Reproduzir"
                         },
                         actionPending(
-                            if (playing) PAUSE else PLAY
+                            if (active) PAUSE else PLAY
                         )
                     ).build()
                 )
@@ -940,7 +981,14 @@ class MusicService : Service() {
     private fun updateNotification() {
         val n = notification()
 
-        if (isPlaying()) {
+        // CORREÇÃO 1.5.2:
+        // Não retirar o serviço do primeiro plano
+        // enquanto estiver reproduzindo OU preparando
+        // a próxima música.
+        val keepForeground =
+            playbackRequested || preparing || isPlaying()
+
+        if (keepForeground) {
             startForeground(
                 NOTIFICATION_ID,
                 n
@@ -1044,7 +1092,8 @@ class MusicService : Service() {
 
             PLAY_INDEX -> {
                 val i = intent.getIntExtra(
-                    EXTRA_INDEX, -1
+                    EXTRA_INDEX,
+                    -1
                 )
 
                 if (i >= 0) {
@@ -1073,7 +1122,8 @@ class MusicService : Service() {
             SEEK -> {
                 seekTo(
                     intent.getIntExtra(
-                        EXTRA_POSITION, 0
+                        EXTRA_POSITION,
+                        0
                     )
                 )
             }
@@ -1098,6 +1148,7 @@ class MusicService : Service() {
 
         destroyed = true
         generation++
+        playbackRequested = false
 
         handler.removeCallbacksAndMessages(null)
 
