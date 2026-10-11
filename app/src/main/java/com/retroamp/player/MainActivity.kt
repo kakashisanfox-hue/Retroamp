@@ -1,23 +1,24 @@
 
 package com.retroamp.player
 
-import android.Manifest
 import android.app.Activity
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.content.res.ColorStateList
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Typeface
 import android.media.MediaPlayer
-import android.media.audiofx.Visualizer
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.OpenableColumns
 import android.view.Gravity
+import android.view.View
 import android.widget.*
 import java.util.Locale
-import kotlin.math.hypot
+import kotlin.random.Random
 
 class MainActivity : Activity() {
 
@@ -27,7 +28,6 @@ class MainActivity : Activity() {
     private val tracks = mutableListOf<Pair<String, Uri>>()
     private var index = -1
     private var player: MediaPlayer? = null
-    private var visualizer: Visualizer? = null
     private var shuffle = false
     private var repeat = false
     private var seeking = false
@@ -38,15 +38,8 @@ class MainActivity : Activity() {
     private lateinit var playlist: LinearLayout
     private lateinit var seek: SeekBar
     private lateinit var playButton: Button
-    private lateinit var equalizer: TextView
 
-    private val bars = IntArray(24)
     private val handler = Handler(Looper.getMainLooper())
-
-    private val symbols = charArrayOf(
-        '\u2581', '\u2582', '\u2583', '\u2584',
-        '\u2585', '\u2586', '\u2587', '\u2588'
-    )
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -54,16 +47,12 @@ class MainActivity : Activity() {
             if (p != null && prepared) {
                 try {
                     if (!seeking) {
-                        seek.progress = p.currentPosition
-                            .coerceAtMost(seek.max)
+                        seek.progress = p.currentPosition.coerceAtMost(seek.max)
                     }
-                    time.text =
-                        "${fmt(p.currentPosition)} / ${fmt(p.duration.coerceAtLeast(0))}"
-
-                    if (!p.isPlaying) resetBars()
-                } catch (_: Exception) {}
+                    time.text = "${fmt(p.currentPosition)} / ${fmt(p.duration.coerceAtLeast(0))}"
+                } catch (_: IllegalStateException) {}
             }
-            handler.postDelayed(this, 100)
+            handler.postDelayed(this, 500)
         }
     }
 
@@ -110,13 +99,56 @@ class MainActivity : Activity() {
         }
         display.addView(time)
 
-        equalizer = label("▁".repeat(24), green, 22f).apply {
-            gravity = Gravity.CENTER
-            typeface = Typeface.MONOSPACE
-            setPadding(dp(2), dp(16), dp(2), dp(20))
-            maxLines = 1
+        // EQUALIZADOR ANIMADO SIMPLES
+        val equalizer = object : View(this) {
+            private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = green
+            }
+
+            private val bars = FloatArray(24) { 0.08f }
+
+            override fun onDraw(canvas: Canvas) {
+                super.onDraw(canvas)
+
+                val gap = dp(3).toFloat()
+                val barWidth = ((width - gap * 23) / 24f).coerceAtLeast(1f)
+                val maxHeight = height * 0.85f
+
+                val playing = try {
+                    prepared && player?.isPlaying == true
+                } catch (_: IllegalStateException) {
+                    false
+                }
+
+                for (i in bars.indices) {
+                    val target = if (playing) {
+                        Random.nextFloat() * 0.85f + 0.15f
+                    } else {
+                        0.08f
+                    }
+
+                    bars[i] += (target - bars[i]) * 0.45f
+
+                    val left = i * (barWidth + gap)
+                    val top = height - bars[i] * maxHeight
+
+                    canvas.drawRect(
+                        left,
+                        top,
+                        left + barWidth,
+                        height.toFloat(),
+                        paint
+                    )
+                }
+
+                postInvalidateDelayed(90)
+            }
         }
-        display.addView(equalizer, full())
+
+        display.addView(
+            equalizer,
+            LinearLayout.LayoutParams(-1, dp(90))
+        )
 
         seek = SeekBar(this).apply {
             max = 1000
@@ -151,23 +183,21 @@ class MainActivity : Activity() {
         }
         root.addView(controls, full())
 
-        fun control(
-            symbol: String,
-            action: () -> Unit
-        ): Button = Button(this).apply {
-            text = symbol
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            isAllCaps = false
-            backgroundTintList = ColorStateList.valueOf(
-                Color.rgb(75, 75, 84)
-            )
-            controls.addView(
-                this,
-                LinearLayout.LayoutParams(0, dp(54), 1f)
-            )
-            setOnClickListener { action() }
-        }
+        fun control(symbol: String, action: () -> Unit): Button =
+            Button(this).apply {
+                text = symbol
+                textSize = 18f
+                setTextColor(Color.WHITE)
+                isAllCaps = false
+                backgroundTintList = ColorStateList.valueOf(
+                    Color.rgb(75, 75, 84)
+                )
+                controls.addView(
+                    this,
+                    LinearLayout.LayoutParams(0, dp(54), 1f)
+                )
+                setOnClickListener { action() }
+            }
 
         control("|◀") { move(-1) }
         playButton = control("▶") { toggle() }
@@ -196,8 +226,7 @@ class MainActivity : Activity() {
             isAllCaps = false
             setOnClickListener {
                 shuffle = !shuffle
-                text = if (shuffle) "SHUFFLE ON"
-                       else "SHUFFLE OFF"
+                text = if (shuffle) "SHUFFLE ON" else "SHUFFLE OFF"
             }
         }
         options.addView(
@@ -211,8 +240,7 @@ class MainActivity : Activity() {
             isAllCaps = false
             setOnClickListener {
                 repeat = !repeat
-                text = if (repeat) "REPEAT ON"
-                       else "REPEAT OFF"
+                text = if (repeat) "REPEAT ON" else "REPEAT OFF"
             }
         }
         options.addView(
@@ -223,7 +251,7 @@ class MainActivity : Activity() {
         root.addView(
             label("  PLAYLIST EDITOR", silver, 14f).apply {
                 setBackgroundColor(Color.rgb(65, 65, 73))
-                setPadding(4, 12, 4, 12)
+                setPadding(dp(4), dp(12), dp(4), dp(12))
             },
             full()
         )
@@ -244,151 +272,13 @@ class MainActivity : Activity() {
         refreshPlaylist()
 
         root.addView(
-            label(
-                "RETROAMP 1.1  •  LOCAL AUDIO",
-                silver, 11f
-            ).apply {
+            label("RETROAMP 1.1  •  LOCAL AUDIO", silver, 11f).apply {
                 gravity = Gravity.CENTER
             },
             full()
         )
 
         handler.post(ticker)
-
-        if (checkSelfPermission(
-                Manifest.permission.RECORD_AUDIO
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissions(
-                arrayOf(Manifest.permission.RECORD_AUDIO),
-                101
-            )
-        }
-    }
-
-    private fun setupVisualizer(p: MediaPlayer) {
-        releaseVisualizer()
-
-        if (checkSelfPermission(
-                Manifest.permission.RECORD_AUDIO
-            ) != PackageManager.PERMISSION_GRANTED
-        ) return
-
-        try {
-            val v = Visualizer(p.audioSessionId)
-            v.captureSize = Visualizer.getCaptureSizeRange()[1]
-
-            v.setDataCaptureListener(
-                object : Visualizer.OnDataCaptureListener {
-                    override fun onWaveFormDataCapture(
-                        visualizer: Visualizer?,
-                        waveform: ByteArray?,
-                        samplingRate: Int
-                    ) {}
-
-                    override fun onFftDataCapture(
-                        visualizer: Visualizer?,
-                        fft: ByteArray?,
-                        samplingRate: Int
-                    ) {
-                        if (fft == null || fft.size < 4) return
-
-                        val values = IntArray(24)
-                        val bins = fft.size / 2
-
-                        for (i in values.indices) {
-                            val start = 1 + (i * i * (bins - 2)) /
-                                (24 * 24)
-                            val end = 1 + ((i + 1) * (i + 1) *
-                                (bins - 2)) / (24 * 24)
-
-                            var peak = 0.0
-
-                            for (j in start until end.coerceAtLeast(start + 1)) {
-                                if (j >= bins) break
-                                val re = fft[j * 2].toDouble()
-                                val im = fft[j * 2 + 1].toDouble()
-                                val magnitude = hypot(re, im)
-                                if (magnitude > peak) peak = magnitude
-                            }
-
-                            values[i] = when {
-                                peak < 2 -> 0
-                                peak < 6 -> 1
-                                peak < 12 -> 2
-                                peak < 22 -> 3
-                                peak < 36 -> 4
-                                peak < 55 -> 5
-                                peak < 80 -> 6
-                                else -> 7
-                            }
-                        }
-
-                        handler.post {
-                            if (player !== p) return@post
-                            if (!p.isPlaying) return@post
-
-                            for (i in bars.indices) {
-                                bars[i] = if (values[i] >= bars[i]) {
-                                    values[i]
-                                } else {
-                                    (bars[i] - 1).coerceAtLeast(0)
-                                }
-                            }
-                            renderBars()
-                        }
-                    }
-                },
-                Visualizer.getMaxCaptureRate() / 2,
-                false,
-                true
-            )
-
-            v.enabled = true
-            visualizer = v
-        } catch (_: Exception) {
-            releaseVisualizer()
-        }
-    }
-
-    private fun renderBars() {
-        equalizer.text = buildString {
-            for (value in bars) {
-                append(symbols[value.coerceIn(0, 7)])
-            }
-        }
-    }
-
-    private fun resetBars() {
-        if (bars.any { it != 0 }) {
-            bars.fill(0)
-            renderBars()
-        }
-    }
-
-    private fun releaseVisualizer() {
-        try {
-            visualizer?.enabled = false
-            visualizer?.release()
-        } catch (_: Exception) {}
-        visualizer = null
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(
-            requestCode, permissions, grantResults
-        )
-        if (requestCode == 101 &&
-            grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
-        ) {
-            if (prepared) {
-                player?.let { setupVisualizer(it) }
-            }
-        }
     }
 
     private fun pickAudio() {
@@ -408,9 +298,7 @@ class MainActivity : Activity() {
     ) {
         super.onActivityResult(requestCode, resultCode, data)
 
-        if (requestCode != 100 ||
-            resultCode != RESULT_OK || data == null
-        ) return
+        if (requestCode != 100 || resultCode != RESULT_OK || data == null) return
 
         val uris = mutableListOf<Uri>()
 
@@ -427,7 +315,8 @@ class MainActivity : Activity() {
         for (uri in uris) {
             try {
                 contentResolver.takePersistableUriPermission(
-                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             } catch (_: Exception) {}
 
@@ -438,17 +327,20 @@ class MainActivity : Activity() {
         }
 
         refreshPlaylist()
-        if (index == -1 && tracks.isNotEmpty()) playAt(0)
+
+        if (index == -1 && tracks.isNotEmpty()) {
+            playAt(0)
+        }
     }
 
     private fun queryName(uri: Uri): String {
         contentResolver.query(
             uri,
-            arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+            arrayOf(OpenableColumns.DISPLAY_NAME),
             null, null, null
-        )?.use { c ->
-            if (c.moveToFirst()) {
-                return c.getString(0) ?: "Unknown track"
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                return cursor.getString(0) ?: "Unknown track"
             }
         }
         return uri.lastPathSegment ?: "Unknown track"
@@ -459,10 +351,7 @@ class MainActivity : Activity() {
 
         if (tracks.isEmpty()) {
             playlist.addView(
-                label(
-                    "  Playlist empty. Tap + ADD MP3",
-                    green, 14f
-                )
+                label("  Playlist empty. Tap + ADD MP3", green, 14f)
             )
         }
 
@@ -472,14 +361,13 @@ class MainActivity : Activity() {
                 if (i == index) Color.WHITE else green,
                 14f
             ).apply {
-                setPadding(
-                    dp(7), dp(11), dp(7), dp(11)
-                )
+                setPadding(dp(7), dp(11), dp(7), dp(11))
                 typeface = Typeface.MONOSPACE
 
                 if (i == index) {
                     setBackgroundColor(Color.rgb(47, 83, 55))
                 }
+
                 setOnClickListener { playAt(i) }
             }
             playlist.addView(row, full())
@@ -489,12 +377,13 @@ class MainActivity : Activity() {
     private fun playAt(i: Int) {
         if (i !in tracks.indices) return
 
-        releaseVisualizer()
+        prepared = false
         player?.release()
         player = null
-        prepared = false
-        resetBars()
         index = i
+        seek.progress = 0
+        playButton.text = "▶"
+        time.text = "00:00 / 00:00"
 
         try {
             val p = MediaPlayer()
@@ -503,19 +392,21 @@ class MainActivity : Activity() {
             p.setOnPreparedListener {
                 prepared = true
                 seek.max = it.duration.coerceAtLeast(1)
-                setupVisualizer(it)
                 it.start()
                 playButton.text = "Ⅱ"
             }
 
             p.setOnCompletionListener {
-                if (repeat) playAt(index)
-                else move(1)
+                if (repeat) {
+                    playAt(index)
+                } else {
+                    move(1)
+                }
             }
 
             p.setOnErrorListener { _, _, _ ->
                 prepared = false
-                releaseVisualizer()
+                playButton.text = "▶"
                 Toast.makeText(
                     this,
                     "Unable to play file",
@@ -527,13 +418,13 @@ class MainActivity : Activity() {
             player = p
             p.prepareAsync()
 
-            title.text = tracks[i].first.uppercase(
-                Locale.getDefault()
-            )
+            title.text = tracks[i].first.uppercase(Locale.getDefault())
             refreshPlaylist()
 
         } catch (e: Exception) {
             prepared = false
+            player?.release()
+            player = null
             Toast.makeText(
                 this,
                 "Cannot open audio: ${e.message}",
@@ -544,8 +435,7 @@ class MainActivity : Activity() {
 
     private fun toggle() {
         val p = player ?: run {
-            if (tracks.isNotEmpty()) playAt(0)
-            else pickAudio()
+            if (tracks.isNotEmpty()) playAt(0) else pickAudio()
             return
         }
 
@@ -554,7 +444,6 @@ class MainActivity : Activity() {
         if (p.isPlaying) {
             p.pause()
             playButton.text = "▶"
-            resetBars()
         } else {
             p.start()
             playButton.text = "Ⅱ"
@@ -565,9 +454,10 @@ class MainActivity : Activity() {
         if (prepared) {
             player?.pause()
             player?.seekTo(0)
+            seek.progress = 0
+            time.text = "00:00 / ${fmt(player?.duration ?: 0)}"
         }
         playButton.text = "▶"
-        resetBars()
     }
 
     private fun move(delta: Int) {
@@ -584,41 +474,40 @@ class MainActivity : Activity() {
         } else {
             stop()
             if (delta > 0) {
-                releaseVisualizer()
-                player?.release()
-                player = null
-                prepared = false
                 index = -1
                 refreshPlaylist()
             }
         }
     }
 
-    private fun fmt(ms: Int) = "%02d:%02d".format(
-        Locale.US, ms / 60000, (ms / 1000) % 60
-    )
+    private fun fmt(ms: Int): String =
+        "%02d:%02d".format(
+            Locale.US,
+            ms / 60000,
+            (ms / 1000) % 60
+        )
 
     private fun label(
-        s: String,
+        value: String,
         color: Int,
         size: Float
     ) = TextView(this).apply {
-        text = s
+        text = value
         setTextColor(color)
         textSize = size
         setPadding(dp(4), dp(7), dp(4), dp(7))
     }
 
-    private fun full() =
-        LinearLayout.LayoutParams(-1, -2)
+    private fun full() = LinearLayout.LayoutParams(-1, -2)
 
-    private fun dp(v: Int) =
-        (v * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int) =
+        (value * resources.displayMetrics.density).toInt()
 
     override fun onDestroy() {
         handler.removeCallbacks(ticker)
-        releaseVisualizer()
+        prepared = false
         player?.release()
+        player = null
         super.onDestroy()
     }
 }
