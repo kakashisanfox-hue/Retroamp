@@ -3,9 +3,14 @@ package com.retroamp.player
 
 import android.app.*
 import android.content.*
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.media.AudioAttributes
 import android.media.MediaMetadata
+import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
@@ -36,6 +41,8 @@ class MusicService : Service() {
         const val EXTRA_PLAYING = "playing"
         const val EXTRA_READY = "ready"
         const val EXTRA_TITLE = "title"
+        const val EXTRA_ARTIST = "artist"
+        const val EXTRA_ALBUM = "album"
     }
 
     private val songs = mutableListOf<Pair<String, Uri>>()
@@ -46,15 +53,19 @@ class MusicService : Service() {
     private var repeat = false
     private var foreground = false
     private var started = false
+    private var preparing = false
+
+    private var songTitle = "RetroAmp"
+    private var songArtist = "Artista desconhecido"
+    private var songAlbum = "Álbum desconhecido"
+    private var albumArt: Bitmap? = null
 
     private lateinit var session: MediaSession
     private val handler = Handler(Looper.getMainLooper())
 
     private val ticker = object : Runnable {
         override fun run() {
-            if (ready) {
-                broadcastUpdate()
-            }
+            if (ready) broadcastUpdate()
             handler.postDelayed(this, 500)
         }
     }
@@ -64,7 +75,6 @@ class MusicService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-
         createChannel()
         loadSongs()
 
@@ -80,6 +90,7 @@ class MusicService : Service() {
                 override fun onSkipToNext() = next()
                 override fun onSkipToPrevious() = previous()
                 override fun onStop() = stop()
+
                 override fun onSeekTo(pos: Long) {
                     seekTo(pos.toInt())
                 }
@@ -117,9 +128,6 @@ class MusicService : Service() {
         }
     }
 
-    private fun currentTitle(): String =
-        songs.getOrNull(currentIndex)?.first ?: "RetroAmp"
-
     private fun isPlaying(): Boolean = try {
         ready && player?.isPlaying == true
     } catch (_: Exception) {
@@ -146,6 +154,103 @@ class MusicService : Service() {
             .apply()
     }
 
+    private fun fallbackArtwork(): Bitmap {
+        val bitmap = Bitmap.createBitmap(
+            320, 320, Bitmap.Config.ARGB_8888
+        )
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.rgb(7, 24, 14))
+
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.color = Color.rgb(108, 255, 85)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 7f
+        canvas.drawRoundRect(
+            18f, 18f, 302f, 302f, 18f, 18f, paint
+        )
+
+        paint.style = Paint.Style.FILL
+        paint.typeface = android.graphics.Typeface.create(
+            "monospace", android.graphics.Typeface.BOLD
+        )
+        paint.textAlign = Paint.Align.CENTER
+        paint.textSize = 38f
+        canvas.drawText("RETROAMP", 160f, 132f, paint)
+
+        paint.textSize = 82f
+        canvas.drawText("♫", 160f, 229f, paint)
+
+        paint.textSize = 16f
+        canvas.drawText(
+            "BY MATHEUSOBLACK", 160f, 277f, paint
+        )
+
+        return bitmap
+    }
+
+    private fun readMetadata(uri: Uri, fileName: String) {
+        songTitle = fileName.substringBeforeLast(
+            ".", fileName
+        )
+        songArtist = "Artista desconhecido"
+        songAlbum = "Álbum desconhecido"
+        albumArt = null
+
+        val retriever = MediaMetadataRetriever()
+
+        try {
+            retriever.setDataSource(this, uri)
+
+            songTitle = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_TITLE
+            )?.takeIf { it.isNotBlank() } ?: songTitle
+
+            songArtist = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_ARTIST
+            )?.takeIf { it.isNotBlank() }
+                ?: "Artista desconhecido"
+
+            songAlbum = retriever.extractMetadata(
+                MediaMetadataRetriever.METADATA_KEY_ALBUM
+            )?.takeIf { it.isNotBlank() }
+                ?: "Álbum desconhecido"
+
+            val bytes = retriever.embeddedPicture
+
+            if (bytes != null) {
+                val options = BitmapFactory.Options().apply {
+                    inJustDecodeBounds = true
+                }
+                BitmapFactory.decodeByteArray(
+                    bytes, 0, bytes.size, options
+                )
+
+                val maxSide = maxOf(
+                    options.outWidth, options.outHeight
+                )
+                val sample = (maxSide / 512).coerceAtLeast(1)
+
+                val decodeOptions =
+                    BitmapFactory.Options().apply {
+                        inSampleSize = sample
+                    }
+
+                albumArt = BitmapFactory.decodeByteArray(
+                    bytes, 0, bytes.size, decodeOptions
+                )
+            }
+        } catch (_: Exception) {
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {}
+        }
+
+        if (albumArt == null) {
+            albumArt = fallbackArtwork()
+        }
+    }
+
     private fun playIndex(i: Int, restore: Boolean = false) {
         loadSongs()
         if (i !in songs.indices) return
@@ -155,6 +260,7 @@ class MusicService : Service() {
             else 0
 
         ready = false
+        preparing = true
         player?.release()
         player = null
 
@@ -164,6 +270,8 @@ class MusicService : Service() {
             .putInt("saved_index", i)
             .putInt("saved_position", resumePosition)
             .apply()
+
+        readMetadata(songs[i].second, songs[i].first)
 
         try {
             val p = MediaPlayer()
@@ -180,6 +288,7 @@ class MusicService : Service() {
             p.setDataSource(this, songs[i].second)
 
             p.setOnPreparedListener {
+                preparing = false
                 ready = true
 
                 if (restore && resumePosition > 0) {
@@ -203,6 +312,7 @@ class MusicService : Service() {
             }
 
             p.setOnErrorListener { _, _, _ ->
+                preparing = false
                 ready = false
                 updateAll()
                 true
@@ -213,6 +323,7 @@ class MusicService : Service() {
             updateAll()
 
         } catch (_: Exception) {
+            preparing = false
             ready = false
             player?.release()
             player = null
@@ -226,7 +337,7 @@ class MusicService : Service() {
                 player?.start()
             } catch (_: Exception) {}
             updateAll()
-        } else {
+        } else if (!preparing) {
             loadSongs()
             val i = if (currentIndex in songs.indices) {
                 currentIndex
@@ -308,22 +419,32 @@ class MusicService : Service() {
     }
 
     private fun updateSession() {
-        session.setMetadata(
-            MediaMetadata.Builder()
-                .putString(
-                    MediaMetadata.METADATA_KEY_TITLE,
-                    currentTitle()
-                )
-                .putString(
-                    MediaMetadata.METADATA_KEY_ARTIST,
-                    "RetroAmp by Matheusoblack"
-                )
-                .putLong(
-                    MediaMetadata.METADATA_KEY_DURATION,
-                    duration().toLong()
-                )
-                .build()
-        )
+        val metadata = MediaMetadata.Builder()
+            .putString(
+                MediaMetadata.METADATA_KEY_TITLE,
+                songTitle
+            )
+            .putString(
+                MediaMetadata.METADATA_KEY_ARTIST,
+                songArtist
+            )
+            .putString(
+                MediaMetadata.METADATA_KEY_ALBUM,
+                songAlbum
+            )
+            .putLong(
+                MediaMetadata.METADATA_KEY_DURATION,
+                duration().toLong()
+            )
+
+        albumArt?.let {
+            metadata.putBitmap(
+                MediaMetadata.METADATA_KEY_ALBUM_ART,
+                it
+            )
+        }
+
+        session.setMetadata(metadata.build())
 
         val playing = isPlaying()
 
@@ -394,10 +515,11 @@ class MusicService : Service() {
 
         val playing = isPlaying()
 
-        return Notification.Builder(this, CHANNEL)
+        val builder = Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(currentTitle())
-            .setContentText("RetroAmp by Matheusoblack")
+            .setContentTitle(songTitle)
+            .setContentText(songArtist)
+            .setSubText(songAlbum)
             .setContentIntent(openPending)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
@@ -431,7 +553,12 @@ class MusicService : Service() {
                     .setMediaSession(session.sessionToken)
                     .setShowActionsInCompactView(0, 1, 2)
             )
-            .build()
+
+        albumArt?.let {
+            builder.setLargeIcon(it)
+        }
+
+        return builder.build()
     }
 
     private fun updateNotification() {
@@ -459,7 +586,9 @@ class MusicService : Service() {
             putExtra(EXTRA_DURATION, duration())
             putExtra(EXTRA_PLAYING, isPlaying())
             putExtra(EXTRA_READY, ready)
-            putExtra(EXTRA_TITLE, currentTitle())
+            putExtra(EXTRA_TITLE, songTitle)
+            putExtra(EXTRA_ARTIST, songArtist)
+            putExtra(EXTRA_ALBUM, songAlbum)
         }
 
         sendBroadcast(intent)
@@ -493,6 +622,7 @@ class MusicService : Service() {
 
             PLAY -> resume()
             PAUSE -> pause()
+
             TOGGLE -> {
                 if (isPlaying()) pause() else resume()
             }
