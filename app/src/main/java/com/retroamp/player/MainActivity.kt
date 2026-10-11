@@ -17,10 +17,12 @@ import android.net.Uri
 import android.os.*
 import android.provider.OpenableColumns
 import android.view.Gravity
+import android.view.View
 import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
+import kotlin.random.Random
 
 class MainActivity : Activity() {
 
@@ -45,6 +47,7 @@ class MainActivity : Activity() {
     private lateinit var seek: SeekBar
     private lateinit var playButton: Button
     private lateinit var cover: ImageView
+    private lateinit var equalizer: View
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -315,7 +318,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(
-                dp(12), dp(10), dp(12), dp(10)
+                dp(12), dp(10), dp(12), dp(8)
             )
             setBackgroundColor(Color.rgb(5, 22, 13))
         }
@@ -329,9 +332,8 @@ class MainActivity : Activity() {
         }
 
         val coverSize = minOf(
-            resources.displayMetrics.widthPixels -
-                dp(72),
-            dp(270)
+            resources.displayMetrics.widthPixels - dp(72),
+            dp(245)
         )
 
         display.addView(
@@ -340,7 +342,7 @@ class MainActivity : Activity() {
                 coverSize, coverSize
             ).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
-                bottomMargin = dp(10)
+                bottomMargin = dp(8)
             }
         )
 
@@ -358,6 +360,7 @@ class MainActivity : Activity() {
             Color.WHITE, 14f
         ).apply {
             gravity = Gravity.CENTER
+            maxLines = 2
         }
         display.addView(artist, full())
 
@@ -366,8 +369,71 @@ class MainActivity : Activity() {
             silver, 12f
         ).apply {
             gravity = Gravity.CENTER
+            maxLines = 2
         }
         display.addView(album, full())
+
+        // Equalizador visual com 24 barras animadas.
+        // Mantém a animação clássica da versão 1.3.
+        equalizer = object : View(this) {
+
+            private val paint = Paint(
+                Paint.ANTI_ALIAS_FLAG
+            ).apply {
+                color = green
+            }
+
+            private val bars = FloatArray(24) {
+                0.08f
+            }
+
+            override fun onDraw(canvas: Canvas) {
+                super.onDraw(canvas)
+
+                val gap = dp(3).toFloat()
+
+                val barWidth = (
+                    (width - gap * 23) / 24f
+                ).coerceAtLeast(1f)
+
+                val maxHeight = height * 0.88f
+
+                for (i in bars.indices) {
+                    val target = if (playing) {
+                        Random.nextFloat() * 0.85f + 0.15f
+                    } else {
+                        0.08f
+                    }
+
+                    bars[i] += (
+                        target - bars[i]
+                    ) * 0.45f
+
+                    val left = i * (barWidth + gap)
+                    val top = height - bars[i] * maxHeight
+
+                    canvas.drawRect(
+                        left,
+                        top,
+                        left + barWidth,
+                        height.toFloat(),
+                        paint
+                    )
+                }
+
+                // Redesenha a animação a cada 90 ms.
+                postInvalidateDelayed(90)
+            }
+        }
+
+        display.addView(
+            equalizer,
+            LinearLayout.LayoutParams(
+                -1, dp(55)
+            ).apply {
+                topMargin = dp(8)
+            }
+        )
 
         time = label(
             "00:00 / 00:00", green, 13f
