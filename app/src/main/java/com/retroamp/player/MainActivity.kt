@@ -23,6 +23,8 @@ import java.util.Locale
 import kotlin.random.Random
 
 class MainActivity : Activity() {
+    private val namedPlaylists = linkedMapOf<String, MutableList<android.net.Uri>>()
+
 
     private val green = Color.rgb(108, 255, 85)
     private val silver = Color.rgb(207, 207, 213)
@@ -140,6 +142,40 @@ class MainActivity : Activity() {
         shuffle = prefs().getBoolean("shuffle", false)
         repeat = prefs().getBoolean("repeat", false)
         currentPosition = prefs().getInt("saved_position", 0)
+    }
+
+
+    private fun saveNamedPlaylists() {
+        val json = org.json.JSONObject()
+        namedPlaylists.forEach { (name, songs) ->
+            val array = org.json.JSONArray()
+            songs.forEach { uri ->
+                array.put(uri.toString())
+            }
+            json.put(name, array)
+        }
+        prefs().edit()
+            .putString("named_playlists", json.toString())
+            .apply()
+    }
+
+    private fun loadNamedPlaylists() {
+        namedPlaylists.clear()
+        try {
+            val json = org.json.JSONObject(
+                prefs().getString("named_playlists", "{}") ?: "{}"
+            )
+            val names = json.keys()
+            while (names.hasNext()) {
+                val name = names.next()
+                val array = json.getJSONArray(name)
+                val songs = mutableListOf<android.net.Uri>()
+                for (i in 0 until array.length()) {
+                    songs.add(android.net.Uri.parse(array.getString(i)))
+                }
+                namedPlaylists[name] = songs
+            }
+        } catch (_: Exception) {}
     }
 
     private fun savePlaylist() {
@@ -690,6 +726,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         loadPlaylist()
+        loadNamedPlaylists()
 
         window.statusBarColor = Color.BLACK
         window.navigationBarColor = Color.BLACK
@@ -1137,12 +1174,23 @@ class MainActivity : Activity() {
                 .setPositiveButton("Criar") { _, _ ->
                     val name = input.text.toString().trim()
                     if (name.isNotEmpty()) {
+                    if (!namedPlaylists.containsKey(name)) {
+                        namedPlaylists[name] = mutableListOf()
+                        saveNamedPlaylists()
+                            recreate()
                         Toast.makeText(
                             this@MainActivity,
                             "Playlist criada: $name",
                             Toast.LENGTH_SHORT
                         ).show()
+                    } else {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Essa playlist já existe",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
+                }
                 }
                 .show()
         }
@@ -1152,6 +1200,27 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
         }
         playlistContainer.addView(newPlaylistButton)
+
+        val namedPlaylistList = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        namedPlaylists.forEach { (name, songs) ->
+            val button = Button(this).apply {
+                text = "♫ $name (${songs.size} músicas)"
+                isAllCaps = false
+                setOnClickListener {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Playlist: $name",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            namedPlaylistList.addView(button)
+        }
+
+        playlistContainer.addView(namedPlaylistList)
         playlistContainer.addView(playlist)
         scroll.addView(playlistContainer)
 
