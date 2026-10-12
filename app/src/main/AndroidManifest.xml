@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission
+        android:name="android.permission.INTERNET" />
+
+    <uses-permission
         android:name="android.permission.READ_MEDIA_AUDIO" />
 
     <uses-permission
@@ -25,18 +28,19 @@
         android:theme="@android:style/Theme.Material.NoActionBar">
 
         <activity
-            android:name="com.retroamp.player.MainActivity"
+            android:name=".MainActivity"
             android:exported="true">
 
             <intent-filter>
-                <action
-                    android:name="android.intent.action.MAIN" />
-
-                <category
-                    android:name="android.intent.category.LAUNCHER" />
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
         </activity>
+
+        <activity
+            android:name=".SearchActivity"
+            android:exported="false" />
 
         <service
             android:name=".MusicService"
