@@ -1148,8 +1148,12 @@ class MainActivity : Activity() {
         }
         }
 
-        scroll.addView(newPlaylistButton)
-        scroll.addView(playlist)
+        val playlistContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        playlistContainer.addView(newPlaylistButton)
+        playlistContainer.addView(playlist)
+        scroll.addView(playlistContainer)
 
         if (index in tracks.indices) {
             title.text = tracks[index].first
