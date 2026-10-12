@@ -977,36 +977,6 @@ class MainActivity : Activity() {
             )
         )
 
-        // NOVO: BUSCADOR MP3 DO RETROAMP 1.6.0
-
-        val searchMp3Button = Button(this).apply {
-            text = "🔎 BUSCAR MP3"
-            isAllCaps = false
-            setTextColor(green)
-            textSize = 12f
-
-            backgroundTintList =
-                ColorStateList.valueOf(
-                    Color.rgb(35, 65, 45)
-                )
-
-            setOnClickListener {
-                startActivity(
-                    Intent(
-                        this@MainActivity,
-                        SearchActivity::class.java
-                    )
-                )
-            }
-        }
-
-        root.addView(
-            searchMp3Button,
-            LinearLayout.LayoutParams(
-                -1, dp(44)
-            )
-        )
-
         val random = Button(this).apply {
             text = if (shuffle) {
                 "SHUFFLE ON"
@@ -1150,6 +1120,20 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
         }
 
+        val newPlaylistButton = Button(this).apply {
+            text = "+ NOVA PLAYLIST"
+            isAllCaps = false
+            setTextColor(green)
+            setOnClickListener {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Criar playlist: em desenvolvimento",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+
+        scroll.addView(newPlaylistButton)
         scroll.addView(playlist)
 
         if (index in tracks.indices) {
@@ -1161,7 +1145,7 @@ class MainActivity : Activity() {
 
         root.addView(
             label(
-                "RETROAMP 1.6.0  •  4SHARED SEARCH",
+                "RETROAMP 1.7.0  •  MINHAS PLAYLISTS",
                 silver, 10f
             ).apply {
                 gravity = Gravity.CENTER
