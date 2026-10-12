@@ -28,7 +28,6 @@ class MainActivity : Activity() {
     private val silver = Color.rgb(207, 207, 213)
     private val tracks = mutableListOf<Pair<String, Uri>>()
 
-    // AUTO SCANNER: somente áudios com 2 minutos ou mais.
     private val minimumScanDurationMs = 120_000L
 
     private var index = -1
@@ -218,8 +217,6 @@ class MainActivity : Activity() {
         }
     }
 
-    // REMOVER UMA MÚSICA
-
     private fun confirmRemove(position: Int) {
         val song = tracks.getOrNull(position) ?: return
 
@@ -314,8 +311,6 @@ class MainActivity : Activity() {
         ).show()
     }
 
-    // LIMPAR A PLAYLIST INTEIRA
-
     private fun confirmClearPlaylist() {
         if (tracks.isEmpty()) {
             Toast.makeText(
@@ -381,8 +376,6 @@ class MainActivity : Activity() {
         libraryStatus.text =
             "${tracks.size} músicas na biblioteca"
     }
-
-    // AUTO SCAN COM FILTRO DE 2 MINUTOS
 
     private fun audioPermission(): String {
         return if (Build.VERSION.SDK_INT >= 33) {
@@ -468,8 +461,6 @@ class MainActivity : Activity() {
                     MediaStore.Audio.Media.DURATION
                 )
 
-                // O arquivo precisa ser identificado como
-                // música E ter duração de pelo menos 120s.
                 val selection =
                     "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND " +
                         "${MediaStore.Audio.Media.DURATION} >= ?"
@@ -514,8 +505,6 @@ class MainActivity : Activity() {
                             durationColumn
                         )
 
-                        // Proteção adicional: nunca adicionar
-                        // áudio com menos de 2 minutos.
                         if (duration < minimumScanDurationMs) {
                             continue
                         }
@@ -590,8 +579,6 @@ class MainActivity : Activity() {
             }
         }.start()
     }
-
-    // CAPA DO ÁLBUM
 
     private fun defaultCover(): Bitmap {
         val bitmap = Bitmap.createBitmap(
@@ -807,8 +794,6 @@ class MainActivity : Activity() {
 
         display.addView(album, full())
 
-        // EQUALIZADOR ANIMADO
-
         val equalizer = object : View(this) {
 
             private val paint = Paint(
@@ -992,6 +977,36 @@ class MainActivity : Activity() {
             )
         )
 
+        // NOVO: BUSCADOR MP3 DO RETROAMP 1.6.0
+
+        val searchMp3Button = Button(this).apply {
+            text = "🔎 BUSCAR MP3"
+            isAllCaps = false
+            setTextColor(green)
+            textSize = 12f
+
+            backgroundTintList =
+                ColorStateList.valueOf(
+                    Color.rgb(35, 65, 45)
+                )
+
+            setOnClickListener {
+                startActivity(
+                    Intent(
+                        this@MainActivity,
+                        SearchActivity::class.java
+                    )
+                )
+            }
+        }
+
+        root.addView(
+            searchMp3Button,
+            LinearLayout.LayoutParams(
+                -1, dp(44)
+            )
+        )
+
         val random = Button(this).apply {
             text = if (shuffle) {
                 "SHUFFLE ON"
@@ -1057,8 +1072,6 @@ class MainActivity : Activity() {
                 0, dp(48), 1.5f
             )
         )
-
-        // BIBLIOTECA E BOTÕES
 
         val libraryBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1148,7 +1161,7 @@ class MainActivity : Activity() {
 
         root.addView(
             label(
-                "RETROAMP 1.5.4  •  SMART AUTO SCAN",
+                "RETROAMP 1.6.0  •  4SHARED SEARCH",
                 silver, 10f
             ).apply {
                 gravity = Gravity.CENTER
@@ -1284,8 +1297,6 @@ class MainActivity : Activity() {
                 uri.lastPathSegment ?: "Unknown track"
             }
 
-            // Arquivos adicionados manualmente não
-            // precisam ter 2 minutos.
             if (tracks.none { it.second == uri }) {
                 tracks.add(name to uri)
             }
@@ -1322,8 +1333,6 @@ class MainActivity : Activity() {
 
         return uri.lastPathSegment ?: "Unknown track"
     }
-
-    // PLAYLIST COM BOTÃO DE REMOVER
 
     private fun refreshPlaylist() {
         playlist.removeAllViews()
