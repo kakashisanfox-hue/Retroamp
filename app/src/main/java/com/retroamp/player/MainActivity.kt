@@ -1125,12 +1125,27 @@ class MainActivity : Activity() {
             isAllCaps = false
             setTextColor(green)
             setOnClickListener {
-                Toast.makeText(
-                    this@MainActivity,
-                    "Criar playlist: em desenvolvimento",
-                    Toast.LENGTH_SHORT
-                ).show()
+            val input = EditText(this@MainActivity).apply {
+                hint = "Nome da playlist"
+                setSingleLine(true)
             }
+
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Nova playlist")
+                .setView(input)
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Criar") { _, _ ->
+                    val name = input.text.toString().trim()
+                    if (name.isNotEmpty()) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Playlist criada: $name",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+                .show()
+        }
         }
 
         scroll.addView(newPlaylistButton)
