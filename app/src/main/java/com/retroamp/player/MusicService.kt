@@ -178,8 +178,39 @@ class MusicService : Service() {
                 )
             }
 
+            val activeName = prefs.getString(
+                "retroamp_active_named_playlist", null
+            )
+
+            val activeSongs = mutableListOf<Pair<String, Uri>>()
+
+            if (activeName != null) {
+                val playlists = org.json.JSONObject(
+                    prefs.getString("named_playlists", "{}") ?: "{}"
+                )
+                val selected = playlists.optJSONArray(activeName)
+
+                if (selected != null) {
+                    for (j in 0 until selected.length()) {
+                        val selectedUri = Uri.parse(
+                            selected.getString(j)
+                        )
+                        val match = loaded.find {
+                            it.second == selectedUri
+                        }
+                        if (match != null) {
+                            activeSongs.add(match)
+                        }
+                    }
+                }
+            }
+
             songs.clear()
-            songs.addAll(loaded)
+            if (activeName == null) {
+                songs.addAll(loaded)
+            } else {
+                songs.addAll(activeSongs)
+            }
 
         } catch (_: Exception) {
             // Mantém a lista anterior.

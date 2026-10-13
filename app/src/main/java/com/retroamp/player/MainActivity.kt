@@ -1336,6 +1336,47 @@ class MainActivity : Activity() {
                 }
             }
             namedPlaylistList.addView(button)
+
+            // RETROAMP_NAMED_PLAY_V2
+            val playNamedButton = Button(this).apply {
+                text = "▶ TOCAR $name"
+                isAllCaps = false
+                setTextColor(green)
+                setOnClickListener {
+                    if (songs.isEmpty()) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Playlist vazia",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        stopService(
+                            Intent(
+                                this@MainActivity,
+                                MusicService::class.java
+                            )
+                        )
+                        prefs().edit()
+                            .putString(
+                                "retroamp_active_named_playlist",
+                                name
+                            )
+                            .putInt("saved_index", 0)
+                            .putInt("saved_position", 0)
+                            .apply()
+                        index = 0
+                        currentPosition = 0
+                        command(MusicService.PLAY_INDEX, 0)
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Tocando playlist: $name",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+            namedPlaylistList.addView(playNamedButton)
+
         }
         playlistContainer.addView(namedPlaylistList)
         playlistContainer.addView(playlist)
@@ -1561,6 +1602,21 @@ class MainActivity : Activity() {
                 maxLines = 2
 
                 setOnClickListener {
+                    if (prefs().contains(
+                            "retroamp_active_named_playlist"
+                        )) {
+                        stopService(
+                            Intent(
+                                this@MainActivity,
+                                MusicService::class.java
+                            )
+                        )
+                        prefs().edit()
+                            .remove("retroamp_active_named_playlist")
+                            .putInt("saved_index", i)
+                            .putInt("saved_position", 0)
+                            .apply()
+                    }
                     command(
                         MusicService.PLAY_INDEX, i
                     )
