@@ -1210,11 +1210,21 @@ class MainActivity : Activity() {
                 text = "♫ $name (${songs.size} músicas)"
                 isAllCaps = false
                 setOnClickListener {
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Playlist: $name",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle(name)
+                        .setItems(arrayOf("Excluir playlist")) { _, _ ->
+                            AlertDialog.Builder(this@MainActivity)
+                                .setTitle("Excluir $name?")
+                                .setMessage("As músicas do celular não serão apagadas.")
+                                .setNegativeButton("Cancelar", null)
+                                .setPositiveButton("Excluir") { _, _ ->
+                                    namedPlaylists.remove(name)
+                                    saveNamedPlaylists()
+                                    recreate()
+                                }
+                                .show()
+                        }
+                        .show()
                 }
             }
             namedPlaylistList.addView(button)
