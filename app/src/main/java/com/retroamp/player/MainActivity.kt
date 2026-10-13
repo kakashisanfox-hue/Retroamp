@@ -1205,31 +1205,138 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
         }
 
+
         namedPlaylists.forEach { (name, songs) ->
             val button = Button(this).apply {
                 text = "♫ $name (${songs.size} músicas)"
                 isAllCaps = false
                 setOnClickListener {
+                    val options = arrayOf(
+                        "Adicionar músicas",
+                        "Ver / remover músicas",
+                        "Excluir playlist"
+                    )
                     AlertDialog.Builder(this@MainActivity)
                         .setTitle(name)
-                        .setItems(arrayOf("Excluir playlist")) { _, _ ->
-                            AlertDialog.Builder(this@MainActivity)
-                                .setTitle("Excluir $name?")
-                                .setMessage("As músicas do celular não serão apagadas.")
-                                .setNegativeButton("Cancelar", null)
-                                .setPositiveButton("Excluir") { _, _ ->
-                                    namedPlaylists.remove(name)
-                                    saveNamedPlaylists()
-                                    recreate()
+                        .setItems(options) { _, choice ->
+                            when (choice) {
+                                0 -> {
+                                    if (tracks.isEmpty()) {
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            "Use AUTO SCAN primeiro",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    } else {
+                                        val labels = tracks.map {
+                                            it.first
+                                        }.toTypedArray()
+                                        val selected = BooleanArray(
+                                            tracks.size
+                                        ) { i ->
+                                            songs.contains(tracks[i].second)
+                                        }
+                                        AlertDialog.Builder(
+                                            this@MainActivity
+                                        )
+                                            .setTitle("Adicionar a $name")
+                                            .setMultiChoiceItems(
+                                                labels, selected
+                                            ) { _, which, checked ->
+                                                selected[which] = checked
+                                            }
+                                            .setNegativeButton(
+                                                "Cancelar", null
+                                            )
+                                            .setPositiveButton(
+                                                "Salvar"
+                                            ) { _, _ ->
+                                                songs.clear()
+                                                tracks.forEachIndexed { i, track ->
+                                                    if (selected[i]) {
+                                                        songs.add(track.second)
+                                                    }
+                                                }
+                                                saveNamedPlaylists()
+                                                recreate()
+                                            }
+                                            .show()
+                                    }
                                 }
-                                .show()
+                                1 -> {
+                                    val labels = songs.map { uri ->
+                                        tracks.find {
+                                            it.second == uri
+                                        }?.first ?: try {
+                                            queryName(uri)
+                                        } catch (_: Exception) {
+                                            "Música"
+                                        }
+                                    }.toTypedArray()
+                                    if (labels.isEmpty()) {
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            "Playlist vazia",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        AlertDialog.Builder(
+                                            this@MainActivity
+                                        )
+                                            .setTitle(name)
+                                            .setItems(labels) { _, pos ->
+                                                AlertDialog.Builder(
+                                                    this@MainActivity
+                                                )
+                                                    .setTitle(
+                                                        "Remover música?"
+                                                    )
+                                                    .setMessage(labels[pos])
+                                                    .setNegativeButton(
+                                                        "Cancelar", null
+                                                    )
+                                                    .setPositiveButton(
+                                                        "Remover"
+                                                    ) { _, _ ->
+                                                        songs.removeAt(pos)
+                                                        saveNamedPlaylists()
+                                                        recreate()
+                                                    }
+                                                    .show()
+                                            }
+                                            .setNegativeButton(
+                                                "Fechar", null
+                                            )
+                                            .show()
+                                    }
+                                }
+                                2 -> {
+                                    AlertDialog.Builder(
+                                        this@MainActivity
+                                    )
+                                        .setTitle("Excluir $name?")
+                                        .setMessage(
+                                            "As músicas do celular serão preservadas."
+                                        )
+                                        .setNegativeButton(
+                                            "Cancelar", null
+                                        )
+                                        .setPositiveButton(
+                                            "Excluir"
+                                        ) { _, _ ->
+                                            namedPlaylists.remove(name)
+                                            saveNamedPlaylists()
+                                            recreate()
+                                        }
+                                        .show()
+                                }
+                            }
                         }
                         .show()
                 }
             }
             namedPlaylistList.addView(button)
         }
-
         playlistContainer.addView(namedPlaylistList)
         playlistContainer.addView(playlist)
         scroll.addView(playlistContainer)
