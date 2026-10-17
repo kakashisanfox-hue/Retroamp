@@ -760,26 +760,23 @@ class MainActivity : Activity() {
 
         setContentView(root)
 
-        val header = label(
-            "RETROAMP  ▥  CLASSIC PLAYER",
-            green, 19f
-        ).apply {
-            setTypeface(
-                Typeface.MONOSPACE,
-                Typeface.BOLD
-            )
-            gravity = Gravity.CENTER
-            setPadding(
-                dp(8), dp(10), dp(8), dp(10)
-            )
-            setBackgroundColor(
-                Color.rgb(23, 29, 33)
-            )
-            elevation = dp(4).toFloat()
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = neonPanel()
+            setPadding(dp(12), dp(6), dp(12), dp(6))
         }
-
+        val brand = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        brand.addView(label("RETROAMP", green, 23f).apply {
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        })
+        brand.addView(label("C L A S S I C   P L A Y E R", silver, 9f))
+        header.addView(brand, LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(label("▂▅▇▃▆▂▇▅", green, 16f).apply {
+            typeface = Typeface.MONOSPACE
+        })
+        header.addView(label("  BY MATHEUSOBLACK", green, 8f))
         root.addView(header, full())
-
 
         val display = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1107,6 +1104,23 @@ class MainActivity : Activity() {
             )
         )
 
+        val tabs = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = neonPanel()
+        }
+        fun tab(labelText: String, selected: Boolean, action: () -> Unit): Button =
+            Button(this).apply {
+                text = labelText
+                textSize = 10f
+                isAllCaps = false
+                setTextColor(if (selected) green else silver)
+                backgroundTintList = null
+                background = neonButton(selected)
+                tabs.addView(this, LinearLayout.LayoutParams(0, dp(45), 1f))
+                setOnClickListener { action() }
+            }
+        root.addView(tabs, full())
+
         val scroll = ScrollView(this).apply {
             setBackgroundColor(
                 Color.rgb(9, 17, 17)
@@ -1350,9 +1364,27 @@ class MainActivity : Activity() {
             namedPlaylistList.addView(playNamedButton)
 
         }
+        val tabPages = arrayOf("♫ PLAYLISTS", "☷ MÚSICAS", "▥ EQUALIZADOR", "⚙ CONFIG")
+        val switchPage: (Int) -> Unit = { page ->
+            namedPlaylistList.visibility = if (page == 0) View.VISIBLE else View.GONE
+            newPlaylistButton.visibility = if (page == 0) View.VISIBLE else View.GONE
+            playlist.visibility = if (page == 1) View.VISIBLE else View.GONE
+            for (i in 0 until tabs.childCount) {
+                val btn = tabs.getChildAt(i) as Button
+                btn.background = neonButton(i == page)
+                btn.setTextColor(if (i == page) green else silver)
+            }
+            if (page == 2) Toast.makeText(this, "Equalizador visual no player", Toast.LENGTH_SHORT).show()
+            if (page == 3) Toast.makeText(this, "Configurações em desenvolvimento", Toast.LENGTH_SHORT).show()
+        }
+        tabPages.forEachIndexed { i, text ->
+            tab(text, i == 0) { switchPage(i) }
+        }
+
         playlistContainer.addView(namedPlaylistList)
         playlistContainer.addView(playlist)
         scroll.addView(playlistContainer)
+        switchPage(0)
 
         if (index in tracks.indices) {
             title.text = tracks[index].first
