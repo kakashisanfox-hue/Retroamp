@@ -9,6 +9,7 @@ import android.content.*
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.*
+import android.graphics.drawable.GradientDrawable
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.*
@@ -55,6 +56,24 @@ class MainActivity : Activity() {
     private lateinit var libraryStatus: TextView
 
     private val handler = Handler(Looper.getMainLooper())
+
+    private fun neonPanel(): GradientDrawable = GradientDrawable(
+        GradientDrawable.Orientation.TL_BR,
+        intArrayOf(Color.rgb(30, 40, 43), Color.rgb(9, 20, 19))
+    ).apply {
+        cornerRadius = dp(12).toFloat()
+        setStroke(dp(1), Color.rgb(55, 100, 72))
+    }
+
+    private fun neonButton(active: Boolean = false): GradientDrawable = GradientDrawable(
+        GradientDrawable.Orientation.TOP_BOTTOM,
+        if (active) intArrayOf(Color.rgb(39, 110, 61), Color.rgb(12, 48, 31))
+        else intArrayOf(Color.rgb(44, 51, 53), Color.rgb(17, 24, 27))
+    ).apply {
+        cornerRadius = dp(10).toFloat()
+        setStroke(dp(1), if (active) green else Color.rgb(64, 84, 74))
+    }
+
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(
@@ -959,10 +978,8 @@ class MainActivity : Activity() {
             setTextColor(green)
             isAllCaps = false
 
-            backgroundTintList =
-                ColorStateList.valueOf(
-                    Color.rgb(24, 32, 34)
-                )
+            backgroundTintList = null
+            background = neonButton(symbol == "▶")
 
             controls.addView(
                 this,
@@ -1161,6 +1178,8 @@ class MainActivity : Activity() {
 
         val newPlaylistButton = Button(this).apply {
             text = "✚ NOVA PLAYLIST"
+            backgroundTintList = null
+            background = neonButton()
             isAllCaps = false
             setTextColor(green)
             setOnClickListener {
@@ -1211,6 +1230,9 @@ class MainActivity : Activity() {
         namedPlaylists.forEach { (name, songs) ->
             val button = Button(this).apply {
                 text = "♫  $name   •   ${songs.size} músicas"
+                backgroundTintList = null
+                background = neonButton()
+                setTextColor(green)
                 isAllCaps = false
                 setOnClickListener {
                     val options = arrayOf(
