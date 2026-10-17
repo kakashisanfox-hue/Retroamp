@@ -780,146 +780,112 @@ class MainActivity : Activity() {
 
         root.addView(header, full())
 
+
         val display = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(
-                dp(12), dp(8), dp(12), dp(6)
-            )
-            setBackgroundColor(
-                Color.rgb(8, 17, 15)
-            )
+            setPadding(dp(10), dp(12), dp(10), dp(8))
+            background = neonPanel()
         }
-
         root.addView(display, full())
 
+        val musicRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        display.addView(musicRow, full())
+
         cover = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.FIT_CENTER
+            scaleType = ImageView.ScaleType.CENTER_CROP
             setImageBitmap(defaultCover())
             contentDescription = "Capa do álbum"
-            setBackgroundColor(
-                Color.rgb(7, 24, 14)
-            )
+            background = neonPanel()
+            elevation = dp(5).toFloat()
         }
+        musicRow.addView(cover, LinearLayout.LayoutParams(dp(132), dp(148)).apply {
+            marginEnd = dp(12)
+        })
 
-        val coverSize = minOf(
-            resources.displayMetrics.widthPixels - dp(72),
-            dp(165)
-        )
+        val infoColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        musicRow.addView(infoColumn, LinearLayout.LayoutParams(0, -2, 1f))
 
-        display.addView(
-            cover,
-            LinearLayout.LayoutParams(
-                coverSize,
-                coverSize
-            ).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                bottomMargin = dp(6)
-            }
-        )
-
-        title = label(
-            "RETROAMP", green, 17f
-        ).apply {
-            gravity = Gravity.CENTER
-            setTypeface(
-                Typeface.MONOSPACE,
-                Typeface.BOLD
-            )
+        title = label("RETROAMP", green, 17f).apply {
+            setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
             maxLines = 2
         }
+        infoColumn.addView(title, full())
 
-        display.addView(title, full())
+        artist = label("Artista desconhecido", Color.WHITE, 13f).apply {
+            maxLines = 2
+            setPadding(0, dp(8), 0, dp(5))
+        }
+        infoColumn.addView(artist, full())
 
-        artist = label(
-            "Artista desconhecido",
-            Color.WHITE, 14f
-        ).apply {
-            gravity = Gravity.CENTER
+        album = label("Álbum desconhecido", silver, 12f).apply {
             maxLines = 2
         }
+        infoColumn.addView(album, full())
 
-        display.addView(artist, full())
-
-        album = label(
-            "Álbum desconhecido",
-            silver, 12f
-        ).apply {
-            gravity = Gravity.CENTER
-            maxLines = 2
-        }
-
-        display.addView(album, full())
-
-        val equalizer = object : View(this) {
-
-            private val paint = Paint(
-                Paint.ANTI_ALIAS_FLAG
-            ).apply {
-                color = green
-            }
-
-            private val bars = FloatArray(24) {
-                0.08f
-            }
-
-            override fun onDraw(canvas: Canvas) {
-                super.onDraw(canvas)
-
-                val gap = dp(3).toFloat()
-
-                val barWidth = (
-                    (width - gap * 23) / 24f
-                ).coerceAtLeast(1f)
-
-                val maxHeight = height * 0.88f
-
-                for (i in bars.indices) {
-                    val target = if (playing) {
-                        Random.nextFloat() * 0.85f + 0.15f
-                    } else {
-                        0.08f
-                    }
-
-                    bars[i] += (
-                        target - bars[i]
-                    ) * 0.45f
-
-                    val left = i * (barWidth + gap)
-                    val top =
-                        height - bars[i] * maxHeight
-
-                    canvas.drawRect(
-                        left,
-                        top,
-                        left + barWidth,
-                        height.toFloat(),
-                        paint
-                    )
+            val equalizer = object : View(this) {
+    
+                private val paint = Paint(
+                    Paint.ANTI_ALIAS_FLAG
+                ).apply {
+                    color = green
                 }
-
-                postInvalidateDelayed(90)
+    
+                private val bars = FloatArray(24) {
+                    0.08f
+                }
+    
+                override fun onDraw(canvas: Canvas) {
+                    super.onDraw(canvas)
+    
+                    val gap = dp(3).toFloat()
+    
+                    val barWidth = (
+                        (width - gap * 23) / 24f
+                    ).coerceAtLeast(1f)
+    
+                    val maxHeight = height * 0.88f
+    
+                    for (i in bars.indices) {
+                        val target = if (playing) {
+                            Random.nextFloat() * 0.85f + 0.15f
+                        } else {
+                            0.08f
+                        }
+    
+                        bars[i] += (
+                            target - bars[i]
+                        ) * 0.45f
+    
+                        val left = i * (barWidth + gap)
+                        val top =
+                            height - bars[i] * maxHeight
+    
+                        canvas.drawRect(
+                            left,
+                            top,
+                            left + barWidth,
+                            height.toFloat(),
+                            paint
+                        )
+                    }
+    
+                    postInvalidateDelayed(90)
+                }
             }
-        }
+        infoColumn.addView(equalizer, LinearLayout.LayoutParams(-1, dp(70)).apply {
+            topMargin = dp(12)
+        })
 
-        display.addView(
-            equalizer,
-            LinearLayout.LayoutParams(
-                -1, dp(52)
-            ).apply {
-                topMargin = dp(6)
-            }
-        )
-
-        time = label(
-            "00:00 / 00:00",
-            green, 13f
-        ).apply {
+        time = label("00:00 / 00:00", green, 13f).apply {
             gravity = Gravity.CENTER
             typeface = Typeface.MONOSPACE
         }
-
-        root.addView(time, full())
+        display.addView(time, full())
 
         seek = SeekBar(this).apply {
             max = 1000
@@ -928,8 +894,7 @@ class MainActivity : Activity() {
             thumbTintList =
                 ColorStateList.valueOf(green)
         }
-
-        root.addView(seek, full())
+        display.addView(seek, full())
 
         seek.setOnSeekBarChangeListener(
             object : SeekBar.OnSeekBarChangeListener {
@@ -963,54 +928,37 @@ class MainActivity : Activity() {
             }
         )
 
+
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = neonPanel()
+            setPadding(dp(4), dp(5), dp(4), dp(5))
         }
-
         root.addView(controls, full())
 
-        fun control(
-            symbol: String,
-            action: () -> Unit
-        ): Button = Button(this).apply {
+        fun control(symbol: String, action: () -> Unit): Button = Button(this).apply {
             text = symbol
-            textSize = if (symbol == "▶") 27f else 21f
+            textSize = if (symbol == "▶") 28f else 22f
             setTextColor(green)
             isAllCaps = false
-
             backgroundTintList = null
             background = neonButton(symbol == "▶")
-
-            controls.addView(
-                this,
-                LinearLayout.LayoutParams(
-                    0, if (symbol == "▶") dp(64) else dp(56), if (symbol == "▶") 1.35f else 1f
-                )
-            )
-
-            elevation = if (symbol == "▶") dp(8).toFloat() else dp(3).toFloat()
+            elevation = if (symbol == "▶") dp(10).toFloat() else dp(3).toFloat()
+            controls.addView(this, LinearLayout.LayoutParams(
+                0, if (symbol == "▶") dp(78) else dp(58),
+                if (symbol == "▶") 1.35f else 1f
+            ).apply { marginEnd = dp(3) })
             setOnClickListener { action() }
         }
 
-        control("|◀") {
-            command(MusicService.PREVIOUS)
-        }
-
+        control("|◀") { command(MusicService.PREVIOUS) }
         playButton = control("▶") {
-            if (tracks.isEmpty()) {
-                requestAudioScan()
-            } else {
-                command(MusicService.TOGGLE)
-            }
+            if (tracks.isEmpty()) requestAudioScan()
+            else command(MusicService.TOGGLE)
         }
-
-        control("■") {
-            command(MusicService.STOP)
-        }
-
-        control("▶|") {
-            command(MusicService.NEXT)
-        }
+        control("■") { command(MusicService.STOP) }
+        control("▶|") { command(MusicService.NEXT) }
 
         val options = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
