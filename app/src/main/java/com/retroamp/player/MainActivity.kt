@@ -1364,26 +1364,76 @@ class MainActivity : Activity() {
             namedPlaylistList.addView(playNamedButton)
 
         }
-        val tabPages = arrayOf("♫ PLAYLISTS", "☷ MÚSICAS", "▥ EQUALIZADOR", "⚙ CONFIG")
+        val eqPage = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(16), dp(12), dp(16))
+            background = neonPanel()
+        }
+        eqPage.addView(label("▥  EQUALIZADOR", green, 18f))
+        eqPage.addView(label("Ajuste o volume do player", silver, 13f))
+        val volumeControl = SeekBar(this).apply {
+            max = 100
+            progress = 80
+            progressTintList = ColorStateList.valueOf(green)
+            thumbTintList = ColorStateList.valueOf(green)
+        }
+        eqPage.addView(volumeControl, full())
+        val audioManager = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+        volumeControl.progress = (audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) * 100 /
+            audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1))
+        volumeControl.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: SeekBar?, value: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                    audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, value * max / 100, 0)
+                }
+            }
+            override fun onStartTrackingTouch(bar: SeekBar?) {}
+            override fun onStopTrackingTouch(bar: SeekBar?) {}
+        })
+        eqPage.addView(label("Visualizador animado disponível acima, no player.", silver, 12f))
+
+        val settingsPage = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(16), dp(12), dp(16))
+            background = neonPanel()
+        }
+        settingsPage.addView(label("⚙  CONFIGURAÇÕES", green, 18f))
+        settingsPage.addView(label("RetroAmp Neon • Classic Player", silver, 13f))
+        settingsPage.addView(label("By Matheusoblack", green, 12f))
+        settingsPage.addView(label("Biblioteca: músicas locais • Sem anúncios", silver, 12f))
+        val rescan = Button(this).apply {
+            text = "⟳ ATUALIZAR BIBLIOTECA"
+            isAllCaps = false
+            setTextColor(green)
+            backgroundTintList = null
+            background = neonButton()
+            setOnClickListener { requestAudioScan() }
+        }
+        settingsPage.addView(rescan, full())
+
+        playlistContainer.addView(namedPlaylistList)
+        playlistContainer.addView(playlist)
+        playlistContainer.addView(eqPage)
+        playlistContainer.addView(settingsPage)
+        scroll.addView(playlistContainer)
+
+        val tabPages = arrayOf("♫ PLAYLISTS", "☷ MÚSICAS", "▥ ÁUDIO", "⚙ CONFIG")
         val switchPage: (Int) -> Unit = { page ->
             namedPlaylistList.visibility = if (page == 0) View.VISIBLE else View.GONE
             newPlaylistButton.visibility = if (page == 0) View.VISIBLE else View.GONE
             playlist.visibility = if (page == 1) View.VISIBLE else View.GONE
+            eqPage.visibility = if (page == 2) View.VISIBLE else View.GONE
+            settingsPage.visibility = if (page == 3) View.VISIBLE else View.GONE
             for (i in 0 until tabs.childCount) {
                 val btn = tabs.getChildAt(i) as Button
                 btn.background = neonButton(i == page)
                 btn.setTextColor(if (i == page) green else silver)
             }
-            if (page == 2) Toast.makeText(this, "Equalizador visual no player", Toast.LENGTH_SHORT).show()
-            if (page == 3) Toast.makeText(this, "Configurações em desenvolvimento", Toast.LENGTH_SHORT).show()
         }
         tabPages.forEachIndexed { i, text ->
             tab(text, i == 0) { switchPage(i) }
         }
-
-        playlistContainer.addView(namedPlaylistList)
-        playlistContainer.addView(playlist)
-        scroll.addView(playlistContainer)
         switchPage(0)
 
         if (index in tracks.indices) {
