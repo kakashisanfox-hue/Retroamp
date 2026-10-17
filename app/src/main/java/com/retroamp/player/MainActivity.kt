@@ -951,92 +951,48 @@ class MainActivity : Activity() {
 
         val options = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            background = neonPanel()
+            setPadding(dp(4), dp(4), dp(4), dp(4))
         }
+        root.addView(options, LinearLayout.LayoutParams(-1, -2).apply {
+            bottomMargin = dp(6)
+        })
 
-        root.addView(options, full())
-
-        val add = Button(this).apply {
-            text = "✚ ADD MP3"
-            backgroundTintList = null
-            background = neonButton(true)
-            isAllCaps = false
-            setTextColor(green)
-            textSize = 12f
-            setOnClickListener { pickAudio() }
-        }
-
-        options.addView(
-            add,
-            LinearLayout.LayoutParams(
-                0, dp(48), 2f
-            )
-        )
-
-        val random = Button(this).apply {
-            text = if (shuffle) {
-                "SHUFFLE ON"
-            } else {
-                "SHUFFLE OFF"
+        fun optionButton(caption: String, active: Boolean, weight: Float, click: () -> Unit): Button =
+            Button(this).apply {
+                text = caption
+                isAllCaps = false
+                textSize = 11f
+                setTextColor(if (active) green else silver)
+                backgroundTintList = null
+                background = neonButton(active)
+                options.addView(this, LinearLayout.LayoutParams(0, dp(54), weight).apply {
+                    marginEnd = dp(3)
+                })
+                setOnClickListener { click() }
             }
 
-            textSize = 10f
-            isAllCaps = false
+        optionButton("✚ ADD MP3", true, 1.1f) { pickAudio() }
 
-            setOnClickListener {
-                shuffle = !shuffle
-                text = if (shuffle) {
-                    "SHUFFLE ON"
-                } else {
-                    "SHUFFLE OFF"
-                }
-
-                saveOptions()
-
-                if (serviceRunning()) {
-                    command(MusicService.REFRESH)
-                }
-            }
+        lateinit var random: Button
+        random = optionButton(if (shuffle) "⤨ SHUFFLE ON" else "⤨ SHUFFLE OFF", shuffle, 1f) {
+            shuffle = !shuffle
+            random.text = if (shuffle) "⤨ SHUFFLE ON" else "⤨ SHUFFLE OFF"
+            random.background = neonButton(shuffle)
+            random.setTextColor(if (shuffle) green else silver)
+            saveOptions()
+            if (serviceRunning()) command(MusicService.REFRESH)
         }
 
-        options.addView(
-            random,
-            LinearLayout.LayoutParams(
-                0, dp(48), 1.5f
-            )
-        )
-
-        val loop = Button(this).apply {
-            text = if (repeat) {
-                "REPEAT ON"
-            } else {
-                "REPEAT OFF"
-            }
-
-            textSize = 10f
-            isAllCaps = false
-
-            setOnClickListener {
-                repeat = !repeat
-                text = if (repeat) {
-                    "REPEAT ON"
-                } else {
-                    "REPEAT OFF"
-                }
-
-                saveOptions()
-
-                if (serviceRunning()) {
-                    command(MusicService.REFRESH)
-                }
-            }
+        lateinit var loop: Button
+        loop = optionButton(if (repeat) "⟳ REPEAT ON" else "⟳ REPEAT OFF", repeat, 1f) {
+            repeat = !repeat
+            loop.text = if (repeat) "⟳ REPEAT ON" else "⟳ REPEAT OFF"
+            loop.background = neonButton(repeat)
+            loop.setTextColor(if (repeat) green else silver)
+            saveOptions()
+            if (serviceRunning()) command(MusicService.REFRESH)
         }
-
-        options.addView(
-            loop,
-            LinearLayout.LayoutParams(
-                0, dp(48), 1.5f
-            )
-        )
 
         val libraryBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
