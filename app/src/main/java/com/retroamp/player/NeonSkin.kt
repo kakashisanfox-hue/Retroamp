@@ -47,6 +47,62 @@ class NeonSkin(private val kind: Kind, private val density: Float) : Drawable() 
             p.strokeWidth = d(5f)
             canvas.drawRoundRect(rect,round,round,p)
         }
+        // Brushed aluminum grain and engraved trim, clipped to the metal shell.
+        if (kind != Kind.PLAY) {
+            canvas.save()
+            canvas.clipRect(rect)
+            p.style = Paint.Style.STROKE
+            p.strokeWidth = d(0.45f)
+            var y = rect.top + d(5f)
+            var row = 0
+            while (y < rect.bottom - d(5f)) {
+                p.color = if (row % 3 == 0) Color.argb(19, 225, 244, 235) else Color.argb(14, 0, 0, 0)
+                canvas.drawLine(rect.left + d(5f), y, rect.right - d(5f), y, p)
+                y += d(3.5f)
+                row++
+            }
+            canvas.restore()
+            // Small inset metal fasteners on the larger equipment chassis.
+            if (kind == Kind.HEADER || kind == Kind.PANEL) {
+                val rr = d(2.6f)
+                val screws = arrayOf(
+                    Pair(rect.left + d(10f), rect.top + d(10f)),
+                    Pair(rect.right - d(10f), rect.top + d(10f)),
+                    Pair(rect.left + d(10f), rect.bottom - d(10f)),
+                    Pair(rect.right - d(10f), rect.bottom - d(10f))
+                )
+                for ((cx, cy) in screws) {
+                    p.style = Paint.Style.FILL
+                    p.shader = LinearGradient(cx - rr, cy - rr, cx + rr, cy + rr,
+                        intArrayOf(Color.rgb(180, 194, 191), Color.rgb(60, 72, 75), Color.rgb(12, 20, 24)),
+                        null, Shader.TileMode.CLAMP)
+                    canvas.drawCircle(cx, cy, rr, p)
+                    p.shader = null
+                    p.style = Paint.Style.STROKE
+                    p.strokeWidth = d(0.75f)
+                    p.color = Color.rgb(14, 22, 25)
+                    canvas.drawLine(cx - rr * 0.45f, cy + rr * 0.45f, cx + rr * 0.45f, cy - rr * 0.45f, p)
+                }
+            }
+        } else {
+            // Three concentric machined rings and an inner glass lens.
+            val cx = rect.centerX()
+            val cy = rect.centerY()
+            val radius = min(rect.width(), rect.height()) / 2f
+            p.shader = null
+            p.style = Paint.Style.STROKE
+            p.strokeWidth = d(2f)
+            p.color = Color.rgb(180, 205, 199)
+            canvas.drawCircle(cx, cy, radius - d(6f), p)
+            p.strokeWidth = d(1.4f)
+            p.color = Color.rgb(19, 77, 56)
+            canvas.drawCircle(cx, cy, radius - d(10f), p)
+            p.strokeWidth = d(1f)
+            p.color = Color.argb(180, 88, 255, 119)
+            canvas.drawArc(RectF(cx-radius+d(3f),cy-radius+d(3f),cx+radius-d(3f),cy+radius-d(3f)),
+                202f, 132f, false, p)
+        }
+        p.shader = null
         p.style = Paint.Style.FILL
     }
     override fun setAlpha(alpha: Int) { p.alpha = alpha; invalidateSelf() }
