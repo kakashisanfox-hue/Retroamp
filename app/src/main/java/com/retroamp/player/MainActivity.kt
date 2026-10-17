@@ -61,7 +61,10 @@ class MainActivity : Activity() {
         NeonSkin(NeonSkin.Kind.PANEL, resources.displayMetrics.density)
 
     private fun neonButton(active: Boolean = false): android.graphics.drawable.Drawable =
-        NeonSkin(if (active) NeonSkin.Kind.ACTIVE else NeonSkin.Kind.BUTTON, resources.displayMetrics.density)
+        resources.getDrawable(
+            if (active) R.drawable.skin_metal_active else R.drawable.skin_metal_button,
+            theme
+        ).mutate()
 
     private fun neonPlay(): android.graphics.drawable.Drawable =
         NeonSkin(NeonSkin.Kind.PLAY, resources.displayMetrics.density)
