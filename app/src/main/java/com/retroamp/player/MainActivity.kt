@@ -663,11 +663,9 @@ class MainActivity : Activity() {
         paint.textSize = 130f
         canvas.drawText("♫", 240f, 320f, paint)
 
-        paint.textSize = 23f
-        canvas.drawText(
-            "BY MATHEUSOBLACK",
-            240f, 410f, paint
-        )
+        paint.textSize = 22f
+        canvas.drawText("TOQUE PARA ADICIONAR", 240f, 393f, paint)
+        canvas.drawText("A CAPA DA MÚSICA", 240f, 422f, paint)
 
         return bitmap
     }
@@ -688,6 +686,7 @@ class MainActivity : Activity() {
 
     private fun chooseCover(key: String) {
         pendingCoverKey = key
+        prefs().edit().putString("pending_manual_cover_key", key).apply()
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "image/*"
@@ -898,6 +897,12 @@ class MainActivity : Activity() {
                 coverOptions("song:" + currentUri.toString())
                 true
             } else false
+        }
+        cover.setOnClickListener {
+            val activeName = prefs().getString("retroamp_active_named_playlist", null)
+            val currentUri = if (activeName != null) namedPlaylists[activeName]?.getOrNull(index)
+                else tracks.getOrNull(index)?.second
+            if (currentUri != null) coverOptions("song:" + currentUri.toString())
         }
         musicRow.addView(cover, LinearLayout.LayoutParams(dp(132), dp(148)).apply {
             marginEnd = dp(12)
@@ -1645,8 +1650,9 @@ class MainActivity : Activity() {
         )
 
         if (requestCode == 102) {
-            val key = pendingCoverKey
+            val key = pendingCoverKey ?: prefs().getString("pending_manual_cover_key", null)
             pendingCoverKey = null
+            prefs().edit().remove("pending_manual_cover_key").apply()
             if (resultCode == RESULT_OK && data?.data != null && key != null) {
                 importCover(data.data!!, key)
             }
@@ -1789,6 +1795,16 @@ class MainActivity : Activity() {
                 coverOptions("song:" + track.second.toString())
                 true
             }
+            val songArt = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                contentDescription = "Adicionar ou alterar capa de " + track.first
+                setImageBitmap(manualCover("song:" + track.second.toString()) ?: defaultCover())
+                setOnClickListener { coverOptions("song:" + track.second.toString()) }
+            }
+            row.addView(songArt, LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                marginStart = dp(4)
+                marginEnd = dp(5)
+            })
             row.addView(
                 songLabel,
                 LinearLayout.LayoutParams(
