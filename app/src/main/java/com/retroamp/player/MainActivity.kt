@@ -840,7 +840,7 @@ class MainActivity : Activity() {
                                 else -> Color.rgb(49, 234, 93)
                             }
                         } else Color.rgb(9, 38, 27)
-                        canvas.drawRoundRect(x, y, x + cellW, y + cellH, dp(0.6f).toFloat(), dp(0.6f).toFloat(), paint)
+                        canvas.drawRoundRect(x, y, x + cellW, y + cellH, dp(1).toFloat(), dp(1).toFloat(), paint)
                     }
                 }
                 postInvalidateDelayed(75)
