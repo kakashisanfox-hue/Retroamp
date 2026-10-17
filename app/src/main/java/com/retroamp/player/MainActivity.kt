@@ -26,8 +26,8 @@ class MainActivity : Activity() {
     private val namedPlaylists = linkedMapOf<String, MutableList<android.net.Uri>>()
 
 
-    private val green = Color.rgb(108, 255, 85)
-    private val silver = Color.rgb(207, 207, 213)
+    private val green = Color.rgb(77, 255, 95)
+    private val silver = Color.rgb(193, 209, 200)
     private val tracks = mutableListOf<Pair<String, Uri>>()
 
     private val minimumScanDurationMs = 120_000L
@@ -622,7 +622,7 @@ class MainActivity : Activity() {
         )
 
         val canvas = Canvas(bitmap)
-        canvas.drawColor(Color.rgb(7, 24, 14))
+        canvas.drawColor(Color.rgb(8, 28, 19))
 
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = green
@@ -733,17 +733,17 @@ class MainActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(25, 25, 28))
+            setBackgroundColor(Color.rgb(9, 13, 16))
             setPadding(
-                dp(12), dp(12), dp(12), dp(8)
+                dp(8), dp(8), dp(8), dp(6)
             )
         }
 
         setContentView(root)
 
         val header = label(
-            "▣ RETROAMP   •   CLASSIC PLAYER",
-            silver, 17f
+            "RETROAMP  ▥  CLASSIC PLAYER",
+            green, 19f
         ).apply {
             setTypeface(
                 Typeface.MONOSPACE,
@@ -754,8 +754,9 @@ class MainActivity : Activity() {
                 dp(8), dp(10), dp(8), dp(10)
             )
             setBackgroundColor(
-                Color.rgb(65, 65, 73)
+                Color.rgb(23, 29, 33)
             )
+            elevation = dp(4).toFloat()
         }
 
         root.addView(header, full())
@@ -767,7 +768,7 @@ class MainActivity : Activity() {
                 dp(12), dp(8), dp(12), dp(6)
             )
             setBackgroundColor(
-                Color.rgb(5, 22, 13)
+                Color.rgb(8, 17, 15)
             )
         }
 
@@ -784,7 +785,7 @@ class MainActivity : Activity() {
 
         val coverSize = minOf(
             resources.displayMetrics.widthPixels - dp(72),
-            dp(210)
+            dp(165)
         )
 
         display.addView(
@@ -885,7 +886,7 @@ class MainActivity : Activity() {
         display.addView(
             equalizer,
             LinearLayout.LayoutParams(
-                -1, dp(45)
+                -1, dp(52)
             ).apply {
                 topMargin = dp(6)
             }
@@ -954,22 +955,23 @@ class MainActivity : Activity() {
             action: () -> Unit
         ): Button = Button(this).apply {
             text = symbol
-            textSize = 18f
-            setTextColor(Color.WHITE)
+            textSize = if (symbol == "▶") 27f else 21f
+            setTextColor(green)
             isAllCaps = false
 
             backgroundTintList =
                 ColorStateList.valueOf(
-                    Color.rgb(75, 75, 84)
+                    Color.rgb(24, 32, 34)
                 )
 
             controls.addView(
                 this,
                 LinearLayout.LayoutParams(
-                    0, dp(50), 1f
+                    0, if (symbol == "▶") dp(64) else dp(56), if (symbol == "▶") 1.35f else 1f
                 )
             )
 
+            elevation = if (symbol == "▶") dp(8).toFloat() else dp(3).toFloat()
             setOnClickListener { action() }
         }
 
@@ -1000,7 +1002,7 @@ class MainActivity : Activity() {
         root.addView(options, full())
 
         val add = Button(this).apply {
-            text = "+ ADD MP3"
+            text = "✚ ADD MP3"
             isAllCaps = false
             setTextColor(green)
             textSize = 12f
@@ -1084,7 +1086,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(
-                Color.rgb(65, 65, 73)
+                Color.rgb(23, 29, 33)
             )
         }
 
@@ -1142,7 +1144,7 @@ class MainActivity : Activity() {
 
         val scroll = ScrollView(this).apply {
             setBackgroundColor(
-                Color.rgb(11, 19, 13)
+                Color.rgb(9, 17, 17)
             )
         }
 
@@ -1158,7 +1160,7 @@ class MainActivity : Activity() {
         }
 
         val newPlaylistButton = Button(this).apply {
-            text = "+ NOVA PLAYLIST"
+            text = "✚ NOVA PLAYLIST"
             isAllCaps = false
             setTextColor(green)
             setOnClickListener {
@@ -1208,7 +1210,7 @@ class MainActivity : Activity() {
 
         namedPlaylists.forEach { (name, songs) ->
             val button = Button(this).apply {
-                text = "♫ $name (${songs.size} músicas)"
+                text = "♫  $name   •   ${songs.size} músicas"
                 isAllCaps = false
                 setOnClickListener {
                     val options = arrayOf(
@@ -1391,7 +1393,7 @@ class MainActivity : Activity() {
 
         root.addView(
             label(
-                "RETROAMP 1.7.0  •  MINHAS PLAYLISTS",
+                "RETROAMP  •  NEON EDITION",
                 silver, 10f
             ).apply {
                 gravity = Gravity.CENTER
