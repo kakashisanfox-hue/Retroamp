@@ -881,10 +881,11 @@ class MainActivity : Activity() {
 
         seek = SeekBar(this).apply {
             max = 1000
-            progressTintList =
-                ColorStateList.valueOf(green)
-            thumbTintList =
-                ColorStateList.valueOf(green)
+            progressTintList = ColorStateList.valueOf(green)
+            progressBackgroundTintList = ColorStateList.valueOf(Color.rgb(40, 63, 62))
+            thumbTintList = ColorStateList.valueOf(green)
+            background = resources.getDrawable(R.drawable.skin_seek_track, theme)
+            splitTrack = false
         }
         display.addView(seek, full())
 
@@ -1288,16 +1289,30 @@ class MainActivity : Activity() {
                 setPadding(dp(10), dp(8), dp(8), dp(8))
                 elevation = dp(3).toFloat()
             }
-            val art = TextView(this).apply {
-                text = "♫"
-                textSize = 28f
-                gravity = Gravity.CENTER
-                setTextColor(green)
+            val art = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                setImageBitmap(defaultCover())
                 background = neonButton(true)
+                contentDescription = "Capa da playlist $name"
             }
             card.addView(art, LinearLayout.LayoutParams(dp(54), dp(54)).apply {
                 marginEnd = dp(10)
             })
+            if (songs.isNotEmpty()) {
+                val songUri = songs.first()
+                Thread {
+                    val bitmap = try {
+                        val retriever = MediaMetadataRetriever()
+                        retriever.setDataSource(this@MainActivity, songUri)
+                        val bytes = retriever.embeddedPicture
+                        retriever.release()
+                        if (bytes != null) BitmapFactory.decodeByteArray(bytes, 0, bytes.size) else null
+                    } catch (_: Exception) { null }
+                    if (bitmap != null) runOnUiThread {
+                        if (!isFinishing && !isDestroyed) art.setImageBitmap(bitmap)
+                    }
+                }.start()
+            }
             val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             info.addView(label(name, Color.WHITE, 15f).apply { maxLines = 1 })
             info.addView(label("${songs.size} músicas", silver, 12f))
