@@ -1329,9 +1329,30 @@ class MainActivity : Activity() {
                         .show()
                 }
             }
-            namedPlaylistList.addView(button)
-
-            // RETROAMP_NAMED_PLAY_V2
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = neonPanel()
+                setPadding(dp(10), dp(8), dp(8), dp(8))
+                elevation = dp(3).toFloat()
+            }
+            val art = TextView(this).apply {
+                text = "♫"
+                textSize = 28f
+                gravity = Gravity.CENTER
+                setTextColor(green)
+                background = neonButton(true)
+            }
+            card.addView(art, LinearLayout.LayoutParams(dp(54), dp(54)).apply {
+                marginEnd = dp(10)
+            })
+            val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            info.addView(label(name, Color.WHITE, 15f).apply { maxLines = 1 })
+            info.addView(label("${songs.size} músicas", silver, 12f))
+            card.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
+            button.text = "⋮"
+            button.textSize = 20f
+            card.addView(button, LinearLayout.LayoutParams(dp(46), dp(52)))
             val playNamedButton = Button(this).apply {
                 text = "▶ TOCAR $name"
                 isAllCaps = false
@@ -1369,7 +1390,15 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            namedPlaylistList.addView(playNamedButton)
+            playNamedButton.text = "▶"
+            playNamedButton.textSize = 21f
+            playNamedButton.backgroundTintList = null
+            playNamedButton.background = neonButton(true)
+            card.addView(playNamedButton, LinearLayout.LayoutParams(dp(56), dp(52)))
+
+            namedPlaylistList.addView(card, LinearLayout.LayoutParams(-1, -2).apply {
+                bottomMargin = dp(7)
+            })
 
         }
         val eqPage = LinearLayout(this).apply {
