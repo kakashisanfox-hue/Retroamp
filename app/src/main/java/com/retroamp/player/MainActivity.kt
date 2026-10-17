@@ -763,9 +763,29 @@ class MainActivity : Activity() {
         })
         brand.addView(label("C L A S S I C   P L A Y E R", silver, 9f))
         header.addView(brand, LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(label("▂▅▇▃▆▂▇▅", green, 16f).apply {
-            typeface = Typeface.MONOSPACE
-        })
+        val headerMeter = object : View(this) {
+            private val meterPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+            override fun onDraw(canvas: Canvas) {
+                super.onDraw(canvas)
+                val count = 17
+                val columns = 11
+                val gap = dp(1).toFloat()
+                val cellWidth = (width - gap * (count - 1)) / count
+                val cellHeight = (height - gap * (columns - 1)) / columns
+                for (i in 0 until count) {
+                    val wave = kotlin.math.abs(kotlin.math.sin((System.currentTimeMillis() / 170.0) + i * 0.62))
+                    val level = if (playing) (2 + wave * 9).toInt() else (2 + (i * 7 % 5))
+                    for (j in 0 until columns) {
+                        meterPaint.color = if (j < level) green else Color.rgb(14, 38, 29)
+                        val left = i * (cellWidth + gap)
+                        val top = height - (j + 1) * (cellHeight + gap)
+                        canvas.drawRect(left, top, left + cellWidth, top + cellHeight, meterPaint)
+                    }
+                }
+                postInvalidateDelayed(115)
+            }
+        }
+        header.addView(headerMeter, LinearLayout.LayoutParams(dp(94), dp(37)).apply { marginEnd = dp(7) })
         header.addView(label("  BY MATHEUSOBLACK", green, 8f))
         header.background = NeonSkin(NeonSkin.Kind.HEADER, resources.displayMetrics.density)
         root.addView(header, LinearLayout.LayoutParams(-1, dp(74)).apply { bottomMargin = dp(6) })
@@ -980,12 +1000,11 @@ class MainActivity : Activity() {
         val libraryBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(
-                Color.rgb(23, 29, 33)
-            )
+            background = neonPanel()
+            setPadding(dp(8), dp(4), dp(8), dp(4))
         }
 
-        root.addView(libraryBar, full())
+        // Library bar is placed after the tabs, matching the reference layout.
 
         libraryStatus = label(
             "${tracks.size} músicas",
@@ -1000,7 +1019,9 @@ class MainActivity : Activity() {
         )
 
         scanButton = Button(this).apply {
-            text = "⟳ SCAN"
+            text = "⟳ AUTO SCAN"
+            backgroundTintList = null
+            background = neonButton()
             textSize = 10f
             isAllCaps = false
             setTextColor(green)
@@ -1013,12 +1034,14 @@ class MainActivity : Activity() {
         libraryBar.addView(
             scanButton,
             LinearLayout.LayoutParams(
-                dp(90), dp(45)
+                dp(100), dp(45)
             )
         )
 
         val clearButton = Button(this).apply {
-            text = "LIMPAR"
+            text = "▤ LIMPAR"
+            backgroundTintList = null
+            background = neonButton()
             textSize = 10f
             isAllCaps = false
             setTextColor(
@@ -1053,6 +1076,7 @@ class MainActivity : Activity() {
                 setOnClickListener { action() }
             }
         root.addView(tabs, full())
+        root.addView(libraryBar, full())
 
         val scroll = ScrollView(this).apply {
             setBackgroundColor(
