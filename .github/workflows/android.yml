@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - main
+      - retroamp-neon-redesign
 
 jobs:
   build:
