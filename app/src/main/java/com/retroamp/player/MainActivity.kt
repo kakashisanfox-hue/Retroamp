@@ -674,7 +674,13 @@ class MainActivity : Activity() {
 
     private fun loadArtwork() {
         val request = ++artworkRequest
-        val uri = tracks.getOrNull(index)?.second
+        val activePlaylistName = prefs().getString("retroamp_active_named_playlist", null)
+        val uri = if (activePlaylistName != null) {
+            namedPlaylists[activePlaylistName]?.getOrNull(index)
+                ?: tracks.getOrNull(index)?.second
+        } else {
+            tracks.getOrNull(index)?.second
+        }
 
         cover.setImageBitmap(defaultCover())
 
@@ -1348,6 +1354,7 @@ class MainActivity : Activity() {
                             .apply()
                         index = 0
                         currentPosition = 0
+                        loadArtwork()
                         command(MusicService.PLAY_INDEX, 0)
                         Toast.makeText(
                             this@MainActivity,
