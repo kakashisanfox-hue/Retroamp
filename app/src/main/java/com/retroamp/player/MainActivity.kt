@@ -9,6 +9,7 @@ import android.content.*
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.*
+import android.graphics.drawable.GradientDrawable
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.*
@@ -26,8 +27,8 @@ class MainActivity : Activity() {
     private val namedPlaylists = linkedMapOf<String, MutableList<android.net.Uri>>()
 
 
-    private val green = Color.rgb(108, 255, 85)
-    private val silver = Color.rgb(207, 207, 213)
+    private val green = Color.rgb(77, 255, 95)
+    private val silver = Color.rgb(193, 209, 200)
     private val tracks = mutableListOf<Pair<String, Uri>>()
 
     private val minimumScanDurationMs = 120_000L
@@ -55,6 +56,18 @@ class MainActivity : Activity() {
     private lateinit var libraryStatus: TextView
 
     private val handler = Handler(Looper.getMainLooper())
+
+    private fun neonPanel(): android.graphics.drawable.Drawable =
+        NeonSkin(NeonSkin.Kind.PANEL, resources.displayMetrics.density)
+
+    private fun neonButton(active: Boolean = false): android.graphics.drawable.Drawable =
+        resources.getDrawable(
+            if (active) R.drawable.skin_metal_active else R.drawable.skin_metal_button,
+            theme
+        ).mutate()
+
+    private fun neonPlay(): android.graphics.drawable.Drawable =
+        NeonSkin(NeonSkin.Kind.PLAY, resources.displayMetrics.density)
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(
@@ -622,7 +635,7 @@ class MainActivity : Activity() {
         )
 
         val canvas = Canvas(bitmap)
-        canvas.drawColor(Color.rgb(7, 24, 14))
+        canvas.drawColor(Color.rgb(8, 28, 19))
 
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = green
@@ -650,22 +663,98 @@ class MainActivity : Activity() {
         paint.textSize = 130f
         canvas.drawText("♫", 240f, 320f, paint)
 
-        paint.textSize = 23f
-        canvas.drawText(
-            "BY MATHEUSOBLACK",
-            240f, 410f, paint
-        )
+        paint.textSize = 22f
+        canvas.drawText("TOQUE PARA ADICIONAR", 240f, 393f, paint)
+        canvas.drawText("A CAPA DA MÚSICA", 240f, 422f, paint)
 
         return bitmap
     }
 
+    private var pendingCoverKey: String? = null
+
+    private fun coverFile(key: String): java.io.File {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(key.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        return java.io.File(filesDir, "cover_$digest.jpg")
+    }
+
+    private fun manualCover(key: String): Bitmap? = try {
+        val file = coverFile(key)
+        if (file.exists()) BitmapFactory.decodeFile(file.absolutePath) else null
+    } catch (_: Exception) { null }
+
+    private fun chooseCover(key: String) {
+        pendingCoverKey = key
+        prefs().edit().putString("pending_manual_cover_key", key).apply()
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "image/*"
+        }
+        startActivityForResult(intent, 102)
+    }
+
+    private fun coverOptions(key: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Capa personalizada")
+            .setItems(arrayOf("Escolher imagem", "Remover capa personalizada")) { _, choice ->
+                if (choice == 0) chooseCover(key)
+                else {
+                    coverFile(key).delete()
+                    loadArtwork()
+                    recreate()
+                }
+            }.show()
+    }
+
+    private fun importCover(source: Uri, key: String) {
+        Thread {
+            var ok = false
+            try {
+                val bitmap = contentResolver.openInputStream(source)?.use { stream ->
+                    BitmapFactory.decodeStream(stream)
+                }
+                if (bitmap != null) {
+                    val side = minOf(bitmap.width, bitmap.height)
+                    val cropped = Bitmap.createBitmap(bitmap,
+                        (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side)
+                    val resized = Bitmap.createScaledBitmap(cropped, 600, 600, true)
+                    java.io.FileOutputStream(coverFile(key)).use {
+                        resized.compress(Bitmap.CompressFormat.JPEG, 88, it)
+                    }
+                    ok = true
+                }
+            } catch (_: Exception) {}
+            val success = ok
+            runOnUiThread {
+                Toast.makeText(this, if (success) "Capa salva!" else "Não foi possível salvar a capa",
+                    Toast.LENGTH_SHORT).show()
+                if (success && !isFinishing) {
+                    loadArtwork()
+                    recreate()
+                }
+            }
+        }.start()
+    }
+
     private fun loadArtwork() {
         val request = ++artworkRequest
-        val uri = tracks.getOrNull(index)?.second
+        val activePlaylistName = prefs().getString("retroamp_active_named_playlist", null)
+        val uri = if (activePlaylistName != null) {
+            namedPlaylists[activePlaylistName]?.getOrNull(index)
+                ?: tracks.getOrNull(index)?.second
+        } else {
+            tracks.getOrNull(index)?.second
+        }
 
         cover.setImageBitmap(defaultCover())
 
         if (uri == null) return
+        val selectedCover = manualCover("song:" + uri.toString())
+        if (selectedCover != null) {
+            cover.setImageBitmap(selectedCover)
+            return
+        }
 
         Thread {
             var bitmap: Bitmap? = null
@@ -733,183 +822,163 @@ class MainActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(25, 25, 28))
+            setBackgroundColor(Color.rgb(5, 9, 11))
             setPadding(
-                dp(12), dp(12), dp(12), dp(8)
+                dp(8), dp(8), dp(8), dp(6)
             )
         }
 
         setContentView(root)
 
-        val header = label(
-            "▣ RETROAMP   •   CLASSIC PLAYER",
-            silver, 17f
-        ).apply {
-            setTypeface(
-                Typeface.MONOSPACE,
-                Typeface.BOLD
-            )
-            gravity = Gravity.CENTER
-            setPadding(
-                dp(8), dp(10), dp(8), dp(10)
-            )
-            setBackgroundColor(
-                Color.rgb(65, 65, 73)
-            )
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = neonPanel()
+            setPadding(dp(12), dp(6), dp(12), dp(6))
         }
-
-        root.addView(header, full())
+        val brand = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        brand.addView(label("RETROAMP", green, 23f).apply {
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        })
+        brand.addView(label("C L A S S I C   P L A Y E R", silver, 9f))
+        header.addView(brand, LinearLayout.LayoutParams(0, -2, 1f))
+        val headerMeter = object : View(this) {
+            private val meterPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+            override fun onDraw(canvas: Canvas) {
+                super.onDraw(canvas)
+                val count = 17
+                val columns = 11
+                val gap = dp(1).toFloat()
+                val cellWidth = (width - gap * (count - 1)) / count
+                val cellHeight = (height - gap * (columns - 1)) / columns
+                for (i in 0 until count) {
+                    val wave = kotlin.math.abs(kotlin.math.sin((System.currentTimeMillis() / 170.0) + i * 0.62))
+                    val level = if (playing) (2 + wave * 9).toInt() else (2 + (i * 7 % 5))
+                    for (j in 0 until columns) {
+                        meterPaint.color = if (j < level) green else Color.rgb(14, 38, 29)
+                        val left = i * (cellWidth + gap)
+                        val top = height - (j + 1) * (cellHeight + gap)
+                        canvas.drawRect(left, top, left + cellWidth, top + cellHeight, meterPaint)
+                    }
+                }
+                postInvalidateDelayed(115)
+            }
+        }
+        header.addView(headerMeter, LinearLayout.LayoutParams(dp(94), dp(37)).apply { marginEnd = dp(7) })
+        header.addView(label("  BY MATHEUSOBLACK", green, 8f))
+        header.background = NeonSkin(NeonSkin.Kind.HEADER, resources.displayMetrics.density)
+        root.addView(header, LinearLayout.LayoutParams(-1, dp(74)).apply { bottomMargin = dp(6) })
 
         val display = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(
-                dp(12), dp(8), dp(12), dp(6)
-            )
-            setBackgroundColor(
-                Color.rgb(5, 22, 13)
-            )
+            setPadding(dp(10), dp(12), dp(10), dp(8))
+            background = neonPanel()
         }
+        root.addView(display, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) })
 
-        root.addView(display, full())
+        val musicRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        display.addView(musicRow, full())
 
         cover = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.FIT_CENTER
+            scaleType = ImageView.ScaleType.CENTER_CROP
             setImageBitmap(defaultCover())
             contentDescription = "Capa do álbum"
-            setBackgroundColor(
-                Color.rgb(7, 24, 14)
-            )
+            background = neonPanel()
+            elevation = dp(5).toFloat()
         }
+        cover.setOnLongClickListener {
+            val activeName = prefs().getString("retroamp_active_named_playlist", null)
+            val currentUri = if (activeName != null) namedPlaylists[activeName]?.getOrNull(index)
+                else tracks.getOrNull(index)?.second
+            if (currentUri != null) {
+                coverOptions("song:" + currentUri.toString())
+                true
+            } else false
+        }
+        cover.setOnClickListener {
+            val activeName = prefs().getString("retroamp_active_named_playlist", null)
+            val currentUri = if (activeName != null) namedPlaylists[activeName]?.getOrNull(index)
+                else tracks.getOrNull(index)?.second
+            if (currentUri != null) coverOptions("song:" + currentUri.toString())
+        }
+        musicRow.addView(cover, LinearLayout.LayoutParams(dp(132), dp(148)).apply {
+            marginEnd = dp(12)
+        })
 
-        val coverSize = minOf(
-            resources.displayMetrics.widthPixels - dp(72),
-            dp(210)
-        )
+        val infoColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        musicRow.addView(infoColumn, LinearLayout.LayoutParams(0, -2, 1f))
 
-        display.addView(
-            cover,
-            LinearLayout.LayoutParams(
-                coverSize,
-                coverSize
-            ).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                bottomMargin = dp(6)
-            }
-        )
-
-        title = label(
-            "RETROAMP", green, 17f
-        ).apply {
-            gravity = Gravity.CENTER
-            setTypeface(
-                Typeface.MONOSPACE,
-                Typeface.BOLD
-            )
+        title = label("RETROAMP", green, 17f).apply {
+            setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
             maxLines = 2
         }
+        infoColumn.addView(title, full())
 
-        display.addView(title, full())
+        artist = label("Artista desconhecido", Color.WHITE, 13f).apply {
+            maxLines = 2
+            setPadding(0, dp(8), 0, dp(5))
+        }
+        infoColumn.addView(artist, full())
 
-        artist = label(
-            "Artista desconhecido",
-            Color.WHITE, 14f
-        ).apply {
-            gravity = Gravity.CENTER
+        album = label("Álbum desconhecido", silver, 12f).apply {
             maxLines = 2
         }
+        infoColumn.addView(album, full())
 
-        display.addView(artist, full())
-
-        album = label(
-            "Álbum desconhecido",
-            silver, 12f
-        ).apply {
-            gravity = Gravity.CENTER
-            maxLines = 2
-        }
-
-        display.addView(album, full())
-
-        val equalizer = object : View(this) {
-
-            private val paint = Paint(
-                Paint.ANTI_ALIAS_FLAG
-            ).apply {
-                color = green
-            }
-
-            private val bars = FloatArray(24) {
-                0.08f
-            }
-
+            val equalizer = object : View(this) {
+            private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+            private val bars = FloatArray(22) { 0.12f }
             override fun onDraw(canvas: Canvas) {
                 super.onDraw(canvas)
-
-                val gap = dp(3).toFloat()
-
-                val barWidth = (
-                    (width - gap * 23) / 24f
-                ).coerceAtLeast(1f)
-
-                val maxHeight = height * 0.88f
-
-                for (i in bars.indices) {
-                    val target = if (playing) {
-                        Random.nextFloat() * 0.85f + 0.15f
-                    } else {
-                        0.08f
+                val cols = bars.size
+                val rows = 14
+                val gap = dp(2).toFloat()
+                val cellW = ((width - gap * (cols - 1)) / cols).coerceAtLeast(1f)
+                val cellH = ((height - gap * (rows - 1)) / rows).coerceAtLeast(1f)
+                for (i in 0 until cols) {
+                    val target = if (playing) Random.nextFloat() * 0.78f + 0.22f else 0.08f
+                    bars[i] += (target - bars[i]) * 0.24f
+                    val lit = (bars[i] * rows).toInt().coerceIn(1, rows)
+                    for (j in 0 until rows) {
+                        val x = i * (cellW + gap)
+                        val y = height - (j + 1) * (cellH + gap)
+                        paint.color = if (j < lit) {
+                            when {
+                                j > rows * 0.78 -> Color.rgb(194, 255, 87)
+                                j > rows * 0.55 -> Color.rgb(111, 255, 88)
+                                else -> Color.rgb(49, 234, 93)
+                            }
+                        } else Color.rgb(9, 38, 27)
+                        canvas.drawRoundRect(x, y, x + cellW, y + cellH, dp(1).toFloat(), dp(1).toFloat(), paint)
                     }
-
-                    bars[i] += (
-                        target - bars[i]
-                    ) * 0.45f
-
-                    val left = i * (barWidth + gap)
-                    val top =
-                        height - bars[i] * maxHeight
-
-                    canvas.drawRect(
-                        left,
-                        top,
-                        left + barWidth,
-                        height.toFloat(),
-                        paint
-                    )
                 }
-
-                postInvalidateDelayed(90)
+                postInvalidateDelayed(75)
             }
         }
+        infoColumn.addView(equalizer, LinearLayout.LayoutParams(-1, dp(70)).apply {
+            topMargin = dp(12)
+        })
 
-        display.addView(
-            equalizer,
-            LinearLayout.LayoutParams(
-                -1, dp(45)
-            ).apply {
-                topMargin = dp(6)
-            }
-        )
-
-        time = label(
-            "00:00 / 00:00",
-            green, 13f
-        ).apply {
+        time = label("00:00 / 00:00", green, 13f).apply {
             gravity = Gravity.CENTER
             typeface = Typeface.MONOSPACE
         }
-
-        root.addView(time, full())
+        display.addView(time, full())
 
         seek = SeekBar(this).apply {
             max = 1000
-            progressTintList =
-                ColorStateList.valueOf(green)
-            thumbTintList =
-                ColorStateList.valueOf(green)
+            progressTintList = ColorStateList.valueOf(green)
+            progressBackgroundTintList = ColorStateList.valueOf(Color.rgb(40, 63, 62))
+            thumbTintList = ColorStateList.valueOf(green)
+            background = resources.getDrawable(R.drawable.skin_seek_track, theme)
+            splitTrack = false
         }
-
-        root.addView(seek, full())
+        display.addView(seek, full())
 
         seek.setOnSeekBarChangeListener(
             object : SeekBar.OnSeekBarChangeListener {
@@ -943,152 +1012,94 @@ class MainActivity : Activity() {
             }
         )
 
+
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = neonPanel()
+            setPadding(dp(4), dp(5), dp(4), dp(5))
         }
+        root.addView(controls, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) })
 
-        root.addView(controls, full())
-
-        fun control(
-            symbol: String,
-            action: () -> Unit
-        ): Button = Button(this).apply {
+        fun control(symbol: String, action: () -> Unit): Button = Button(this).apply {
             text = symbol
-            textSize = 18f
-            setTextColor(Color.WHITE)
+            textSize = if (symbol == "▶") 28f else 23f
+            setTextColor(green)
             isAllCaps = false
-
-            backgroundTintList =
-                ColorStateList.valueOf(
-                    Color.rgb(75, 75, 84)
-                )
-
-            controls.addView(
-                this,
-                LinearLayout.LayoutParams(
-                    0, dp(50), 1f
-                )
-            )
-
+            backgroundTintList = null
+            background = if (symbol == "▶") neonPlay() else neonButton()
+            elevation = if (symbol == "▶") dp(10).toFloat() else dp(3).toFloat()
+            val lp = if (symbol == "▶") {
+                LinearLayout.LayoutParams(dp(86), dp(86))
+            } else {
+                LinearLayout.LayoutParams(0, dp(68), 1f)
+            }
+            lp.marginEnd = dp(4)
+            controls.addView(this, lp)
             setOnClickListener { action() }
         }
 
-        control("|◀") {
-            command(MusicService.PREVIOUS)
-        }
-
+        control("|◀") { command(MusicService.PREVIOUS) }
         playButton = control("▶") {
-            if (tracks.isEmpty()) {
-                requestAudioScan()
-            } else {
-                command(MusicService.TOGGLE)
-            }
+            if (tracks.isEmpty()) requestAudioScan()
+            else command(MusicService.TOGGLE)
         }
-
-        control("■") {
-            command(MusicService.STOP)
-        }
-
-        control("▶|") {
-            command(MusicService.NEXT)
-        }
+        control("■") { command(MusicService.STOP) }
+        control("▶|") { command(MusicService.NEXT) }
 
         val options = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            background = neonPanel()
+            setPadding(dp(4), dp(4), dp(4), dp(4))
         }
+        root.addView(options, LinearLayout.LayoutParams(-1, -2).apply {
+            bottomMargin = dp(6)
+        })
 
-        root.addView(options, full())
-
-        val add = Button(this).apply {
-            text = "+ ADD MP3"
-            isAllCaps = false
-            setTextColor(green)
-            textSize = 12f
-            setOnClickListener { pickAudio() }
-        }
-
-        options.addView(
-            add,
-            LinearLayout.LayoutParams(
-                0, dp(48), 2f
-            )
-        )
-
-        val random = Button(this).apply {
-            text = if (shuffle) {
-                "SHUFFLE ON"
-            } else {
-                "SHUFFLE OFF"
+        fun optionButton(caption: String, active: Boolean, weight: Float, click: () -> Unit): Button =
+            Button(this).apply {
+                text = caption
+                isAllCaps = false
+                textSize = 11f
+                setTextColor(if (active) green else silver)
+                backgroundTintList = null
+                background = neonButton(active)
+                options.addView(this, LinearLayout.LayoutParams(0, dp(54), weight).apply {
+                    marginEnd = dp(3)
+                })
+                setOnClickListener { click() }
             }
 
-            textSize = 10f
-            isAllCaps = false
+        optionButton("✚ ADD MP3", true, 1.1f) { pickAudio() }
 
-            setOnClickListener {
-                shuffle = !shuffle
-                text = if (shuffle) {
-                    "SHUFFLE ON"
-                } else {
-                    "SHUFFLE OFF"
-                }
-
-                saveOptions()
-
-                if (serviceRunning()) {
-                    command(MusicService.REFRESH)
-                }
-            }
+        lateinit var random: Button
+        random = optionButton(if (shuffle) "⤨ SHUFFLE ON" else "⤨ SHUFFLE OFF", shuffle, 1f) {
+            shuffle = !shuffle
+            random.text = if (shuffle) "⤨ SHUFFLE ON" else "⤨ SHUFFLE OFF"
+            random.background = neonButton(shuffle)
+            random.setTextColor(if (shuffle) green else silver)
+            saveOptions()
+            if (serviceRunning()) command(MusicService.REFRESH)
         }
 
-        options.addView(
-            random,
-            LinearLayout.LayoutParams(
-                0, dp(48), 1.5f
-            )
-        )
-
-        val loop = Button(this).apply {
-            text = if (repeat) {
-                "REPEAT ON"
-            } else {
-                "REPEAT OFF"
-            }
-
-            textSize = 10f
-            isAllCaps = false
-
-            setOnClickListener {
-                repeat = !repeat
-                text = if (repeat) {
-                    "REPEAT ON"
-                } else {
-                    "REPEAT OFF"
-                }
-
-                saveOptions()
-
-                if (serviceRunning()) {
-                    command(MusicService.REFRESH)
-                }
-            }
+        lateinit var loop: Button
+        loop = optionButton(if (repeat) "⟳ REPEAT ON" else "⟳ REPEAT OFF", repeat, 1f) {
+            repeat = !repeat
+            loop.text = if (repeat) "⟳ REPEAT ON" else "⟳ REPEAT OFF"
+            loop.background = neonButton(repeat)
+            loop.setTextColor(if (repeat) green else silver)
+            saveOptions()
+            if (serviceRunning()) command(MusicService.REFRESH)
         }
-
-        options.addView(
-            loop,
-            LinearLayout.LayoutParams(
-                0, dp(48), 1.5f
-            )
-        )
 
         val libraryBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(
-                Color.rgb(65, 65, 73)
-            )
+            background = neonPanel()
+            setPadding(dp(8), dp(4), dp(8), dp(4))
         }
 
-        root.addView(libraryBar, full())
+        // Library bar is placed after the tabs, matching the reference layout.
 
         libraryStatus = label(
             "${tracks.size} músicas",
@@ -1103,7 +1114,9 @@ class MainActivity : Activity() {
         )
 
         scanButton = Button(this).apply {
-            text = "⟳ SCAN"
+            text = "⟳ AUTO SCAN"
+            backgroundTintList = null
+            background = neonButton()
             textSize = 10f
             isAllCaps = false
             setTextColor(green)
@@ -1116,12 +1129,14 @@ class MainActivity : Activity() {
         libraryBar.addView(
             scanButton,
             LinearLayout.LayoutParams(
-                dp(90), dp(45)
+                dp(100), dp(45)
             )
         )
 
         val clearButton = Button(this).apply {
-            text = "LIMPAR"
+            text = "▤ LIMPAR"
+            backgroundTintList = null
+            background = neonButton()
             textSize = 10f
             isAllCaps = false
             setTextColor(
@@ -1140,9 +1155,27 @@ class MainActivity : Activity() {
             )
         )
 
+        val tabs = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = neonPanel()
+        }
+        fun tab(labelText: String, selected: Boolean, action: () -> Unit): Button =
+            Button(this).apply {
+                text = labelText
+                textSize = 10f
+                isAllCaps = false
+                setTextColor(if (selected) green else silver)
+                backgroundTintList = null
+                background = neonButton(selected)
+                tabs.addView(this, LinearLayout.LayoutParams(0, dp(45), 1f))
+                setOnClickListener { action() }
+            }
+        root.addView(tabs, full())
+        root.addView(libraryBar, full())
+
         val scroll = ScrollView(this).apply {
             setBackgroundColor(
-                Color.rgb(11, 19, 13)
+                Color.rgb(9, 17, 17)
             )
         }
 
@@ -1158,7 +1191,9 @@ class MainActivity : Activity() {
         }
 
         val newPlaylistButton = Button(this).apply {
-            text = "+ NOVA PLAYLIST"
+            text = "✚ NOVA PLAYLIST"
+            backgroundTintList = null
+            background = neonButton()
             isAllCaps = false
             setTextColor(green)
             setOnClickListener {
@@ -1208,7 +1243,10 @@ class MainActivity : Activity() {
 
         namedPlaylists.forEach { (name, songs) ->
             val button = Button(this).apply {
-                text = "♫ $name (${songs.size} músicas)"
+                text = "♫  $name   •   ${songs.size} músicas"
+                backgroundTintList = null
+                background = neonButton()
+                setTextColor(green)
                 isAllCaps = false
                 setOnClickListener {
                     val options = arrayOf(
@@ -1335,9 +1373,52 @@ class MainActivity : Activity() {
                         .show()
                 }
             }
-            namedPlaylistList.addView(button)
-
-            // RETROAMP_NAMED_PLAY_V2
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background = neonPanel()
+                setPadding(dp(10), dp(8), dp(8), dp(8))
+                elevation = dp(3).toFloat()
+            }
+            val art = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                setImageBitmap(defaultCover())
+                background = neonButton(true)
+                contentDescription = "Capa da playlist $name"
+            }
+            card.addView(art, LinearLayout.LayoutParams(dp(54), dp(54)).apply {
+                marginEnd = dp(10)
+            })
+            art.setOnClickListener { coverOptions("playlist:" + name) }
+            val playlistCustomCover = manualCover("playlist:" + name)
+            if (playlistCustomCover != null) art.setImageBitmap(playlistCustomCover)
+            else if (songs.isNotEmpty()) {
+                val songUri = songs.first()
+                val songCustomCover = manualCover("song:" + songUri.toString())
+                if (songCustomCover != null) {
+                    art.setImageBitmap(songCustomCover)
+                } else {
+                Thread {
+                    val bitmap = try {
+                        val retriever = MediaMetadataRetriever()
+                        retriever.setDataSource(this@MainActivity, songUri)
+                        val bytes = retriever.embeddedPicture
+                        retriever.release()
+                        if (bytes != null) BitmapFactory.decodeByteArray(bytes, 0, bytes.size) else null
+                    } catch (_: Exception) { null }
+                    if (bitmap != null) runOnUiThread {
+                        if (!isFinishing && !isDestroyed) art.setImageBitmap(bitmap)
+                    }
+                }.start()
+                }
+            }
+            val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            info.addView(label(name, Color.WHITE, 15f).apply { maxLines = 1 })
+            info.addView(label("${songs.size} músicas", silver, 12f))
+            card.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
+            button.text = "⋮"
+            button.textSize = 20f
+            card.addView(button, LinearLayout.LayoutParams(dp(46), dp(52)))
             val playNamedButton = Button(this).apply {
                 text = "▶ TOCAR $name"
                 isAllCaps = false
@@ -1366,6 +1447,7 @@ class MainActivity : Activity() {
                             .apply()
                         index = 0
                         currentPosition = 0
+                        loadArtwork()
                         command(MusicService.PLAY_INDEX, 0)
                         Toast.makeText(
                             this@MainActivity,
@@ -1375,12 +1457,88 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            namedPlaylistList.addView(playNamedButton)
+            playNamedButton.text = "▶"
+            playNamedButton.textSize = 21f
+            playNamedButton.backgroundTintList = null
+            playNamedButton.background = neonButton(true)
+            card.addView(playNamedButton, LinearLayout.LayoutParams(dp(56), dp(52)))
+
+            namedPlaylistList.addView(card, LinearLayout.LayoutParams(-1, -2).apply {
+                bottomMargin = dp(7)
+            })
 
         }
+        val eqPage = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(16), dp(12), dp(16))
+            background = neonPanel()
+        }
+        eqPage.addView(label("▥  EQUALIZADOR", green, 18f))
+        eqPage.addView(label("Ajuste o volume do player", silver, 13f))
+        val volumeControl = SeekBar(this).apply {
+            max = 100
+            progress = 80
+            progressTintList = ColorStateList.valueOf(green)
+            thumbTintList = ColorStateList.valueOf(green)
+        }
+        eqPage.addView(volumeControl, full())
+        val audioManager = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+        volumeControl.progress = (audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) * 100 /
+            audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1))
+        volumeControl.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: SeekBar?, value: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    val max = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                    audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, value * max / 100, 0)
+                }
+            }
+            override fun onStartTrackingTouch(bar: SeekBar?) {}
+            override fun onStopTrackingTouch(bar: SeekBar?) {}
+        })
+        eqPage.addView(label("Visualizador animado disponível acima, no player.", silver, 12f))
+
+        val settingsPage = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(16), dp(12), dp(16))
+            background = neonPanel()
+        }
+        settingsPage.addView(label("⚙  CONFIGURAÇÕES", green, 18f))
+        settingsPage.addView(label("RetroAmp Neon • Classic Player", silver, 13f))
+        settingsPage.addView(label("By Matheusoblack", green, 12f))
+        settingsPage.addView(label("Biblioteca: músicas locais • Sem anúncios", silver, 12f))
+        val rescan = Button(this).apply {
+            text = "⟳ ATUALIZAR BIBLIOTECA"
+            isAllCaps = false
+            setTextColor(green)
+            backgroundTintList = null
+            background = neonButton()
+            setOnClickListener { requestAudioScan() }
+        }
+        settingsPage.addView(rescan, full())
+
         playlistContainer.addView(namedPlaylistList)
         playlistContainer.addView(playlist)
+        playlistContainer.addView(eqPage)
+        playlistContainer.addView(settingsPage)
         scroll.addView(playlistContainer)
+
+        val tabPages = arrayOf("♫ PLAYLISTS", "☷ MÚSICAS", "▥ ÁUDIO", "⚙ CONFIG")
+        val switchPage: (Int) -> Unit = { page ->
+            namedPlaylistList.visibility = if (page == 0) View.VISIBLE else View.GONE
+            newPlaylistButton.visibility = if (page == 0) View.VISIBLE else View.GONE
+            playlist.visibility = if (page == 1) View.VISIBLE else View.GONE
+            eqPage.visibility = if (page == 2) View.VISIBLE else View.GONE
+            settingsPage.visibility = if (page == 3) View.VISIBLE else View.GONE
+            for (i in 0 until tabs.childCount) {
+                val btn = tabs.getChildAt(i) as Button
+                btn.background = neonButton(i == page)
+                btn.setTextColor(if (i == page) green else silver)
+            }
+        }
+        tabPages.forEachIndexed { i, text ->
+            tab(text, i == 0) { switchPage(i) }
+        }
+        switchPage(0)
 
         if (index in tracks.indices) {
             title.text = tracks[index].first
@@ -1391,7 +1549,7 @@ class MainActivity : Activity() {
 
         root.addView(
             label(
-                "RETROAMP 1.7.0  •  MINHAS PLAYLISTS",
+                "RETROAMP  •  NEON EDITION",
                 silver, 10f
             ).apply {
                 gravity = Gravity.CENTER
@@ -1490,6 +1648,16 @@ class MainActivity : Activity() {
         super.onActivityResult(
             requestCode, resultCode, data
         )
+
+        if (requestCode == 102) {
+            val key = pendingCoverKey ?: prefs().getString("pending_manual_cover_key", null)
+            pendingCoverKey = null
+            prefs().edit().remove("pending_manual_cover_key").apply()
+            if (resultCode == RESULT_OK && data?.data != null && key != null) {
+                importCover(data.data!!, key)
+            }
+            return
+        }
 
         if (
             requestCode != 100 ||
@@ -1623,6 +1791,20 @@ class MainActivity : Activity() {
                 }
             }
 
+            songLabel.setOnLongClickListener {
+                coverOptions("song:" + track.second.toString())
+                true
+            }
+            val songArt = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                contentDescription = "Adicionar ou alterar capa de " + track.first
+                setImageBitmap(manualCover("song:" + track.second.toString()) ?: defaultCover())
+                setOnClickListener { coverOptions("song:" + track.second.toString()) }
+            }
+            row.addView(songArt, LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                marginStart = dp(4)
+                marginEnd = dp(5)
+            })
             row.addView(
                 songLabel,
                 LinearLayout.LayoutParams(

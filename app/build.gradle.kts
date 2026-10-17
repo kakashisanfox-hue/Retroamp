@@ -1,4 +1,3 @@
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -12,8 +11,8 @@ android {
         applicationId = "com.retroamp.player"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.6.0"
+        versionCode = 20
+        versionName = "2.0.0-neon"
     }
 
     compileOptions {
