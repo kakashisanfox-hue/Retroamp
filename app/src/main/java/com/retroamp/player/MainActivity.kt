@@ -672,6 +672,72 @@ class MainActivity : Activity() {
         return bitmap
     }
 
+    private var pendingCoverKey: String? = null
+
+    private fun coverFile(key: String): java.io.File {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(key.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        return java.io.File(filesDir, "cover_$digest.jpg")
+    }
+
+    private fun manualCover(key: String): Bitmap? = try {
+        val file = coverFile(key)
+        if (file.exists()) BitmapFactory.decodeFile(file.absolutePath) else null
+    } catch (_: Exception) { null }
+
+    private fun chooseCover(key: String) {
+        pendingCoverKey = key
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "image/*"
+        }
+        startActivityForResult(intent, 102)
+    }
+
+    private fun coverOptions(key: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Capa personalizada")
+            .setItems(arrayOf("Escolher imagem", "Remover capa personalizada")) { _, choice ->
+                if (choice == 0) chooseCover(key)
+                else {
+                    coverFile(key).delete()
+                    loadArtwork()
+                    recreate()
+                }
+            }.show()
+    }
+
+    private fun importCover(source: Uri, key: String) {
+        Thread {
+            var ok = false
+            try {
+                val bitmap = contentResolver.openInputStream(source)?.use { stream ->
+                    BitmapFactory.decodeStream(stream)
+                }
+                if (bitmap != null) {
+                    val side = minOf(bitmap.width, bitmap.height)
+                    val cropped = Bitmap.createBitmap(bitmap,
+                        (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side)
+                    val resized = Bitmap.createScaledBitmap(cropped, 600, 600, true)
+                    java.io.FileOutputStream(coverFile(key)).use {
+                        resized.compress(Bitmap.CompressFormat.JPEG, 88, it)
+                    }
+                    ok = true
+                }
+            } catch (_: Exception) {}
+            val success = ok
+            runOnUiThread {
+                Toast.makeText(this, if (success) "Capa salva!" else "Não foi possível salvar a capa",
+                    Toast.LENGTH_SHORT).show()
+                if (success && !isFinishing) {
+                    loadArtwork()
+                    recreate()
+                }
+            }
+        }.start()
+    }
+
     private fun loadArtwork() {
         val request = ++artworkRequest
         val activePlaylistName = prefs().getString("retroamp_active_named_playlist", null)
@@ -685,6 +751,11 @@ class MainActivity : Activity() {
         cover.setImageBitmap(defaultCover())
 
         if (uri == null) return
+        val selectedCover = manualCover("song:" + uri.toString())
+        if (selectedCover != null) {
+            cover.setImageBitmap(selectedCover)
+            return
+        }
 
         Thread {
             var bitmap: Bitmap? = null
@@ -818,6 +889,15 @@ class MainActivity : Activity() {
             contentDescription = "Capa do álbum"
             background = neonPanel()
             elevation = dp(5).toFloat()
+        }
+        cover.setOnLongClickListener {
+            val activeName = prefs().getString("retroamp_active_named_playlist", null)
+            val currentUri = if (activeName != null) namedPlaylists[activeName]?.getOrNull(index)
+                else tracks.getOrNull(index)?.second
+            if (currentUri != null) {
+                coverOptions("song:" + currentUri.toString())
+                true
+            } else false
         }
         musicRow.addView(cover, LinearLayout.LayoutParams(dp(132), dp(148)).apply {
             marginEnd = dp(12)
@@ -1304,8 +1384,15 @@ class MainActivity : Activity() {
             card.addView(art, LinearLayout.LayoutParams(dp(54), dp(54)).apply {
                 marginEnd = dp(10)
             })
-            if (songs.isNotEmpty()) {
+            art.setOnClickListener { coverOptions("playlist:" + name) }
+            val playlistCustomCover = manualCover("playlist:" + name)
+            if (playlistCustomCover != null) art.setImageBitmap(playlistCustomCover)
+            else if (songs.isNotEmpty()) {
                 val songUri = songs.first()
+                val songCustomCover = manualCover("song:" + songUri.toString())
+                if (songCustomCover != null) {
+                    art.setImageBitmap(songCustomCover)
+                } else {
                 Thread {
                     val bitmap = try {
                         val retriever = MediaMetadataRetriever()
@@ -1318,6 +1405,7 @@ class MainActivity : Activity() {
                         if (!isFinishing && !isDestroyed) art.setImageBitmap(bitmap)
                     }
                 }.start()
+                }
             }
             val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             info.addView(label(name, Color.WHITE, 15f).apply { maxLines = 1 })
@@ -1556,6 +1644,15 @@ class MainActivity : Activity() {
             requestCode, resultCode, data
         )
 
+        if (requestCode == 102) {
+            val key = pendingCoverKey
+            pendingCoverKey = null
+            if (resultCode == RESULT_OK && data?.data != null && key != null) {
+                importCover(data.data!!, key)
+            }
+            return
+        }
+
         if (
             requestCode != 100 ||
             resultCode != RESULT_OK ||
@@ -1688,6 +1785,10 @@ class MainActivity : Activity() {
                 }
             }
 
+            songLabel.setOnLongClickListener {
+                coverOptions("song:" + track.second.toString())
+                true
+            }
             row.addView(
                 songLabel,
                 LinearLayout.LayoutParams(
