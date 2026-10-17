@@ -62,7 +62,7 @@ class MainActivity : Activity() {
         intArrayOf(Color.rgb(30, 40, 43), Color.rgb(9, 20, 19))
     ).apply {
         cornerRadius = dp(12).toFloat()
-        setStroke(dp(1), Color.rgb(55, 100, 72))
+        setStroke(dp(1), Color.rgb(54, 175, 94))
     }
 
     private fun neonButton(active: Boolean = false): GradientDrawable = GradientDrawable(
@@ -71,7 +71,7 @@ class MainActivity : Activity() {
         else intArrayOf(Color.rgb(44, 51, 53), Color.rgb(17, 24, 27))
     ).apply {
         cornerRadius = dp(10).toFloat()
-        setStroke(dp(1), if (active) green else Color.rgb(64, 84, 74))
+        setStroke(dp(1), if (active) green else Color.rgb(78, 107, 95))
     }
 
 
@@ -752,7 +752,7 @@ class MainActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.rgb(9, 13, 16))
+            setBackgroundColor(Color.rgb(5, 9, 11))
             setPadding(
                 dp(8), dp(8), dp(8), dp(6)
             )
@@ -776,14 +776,14 @@ class MainActivity : Activity() {
             typeface = Typeface.MONOSPACE
         })
         header.addView(label("  BY MATHEUSOBLACK", green, 8f))
-        root.addView(header, full())
+        root.addView(header, LinearLayout.LayoutParams(-1, dp(74)).apply { bottomMargin = dp(6) })
 
         val display = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(10), dp(12), dp(10), dp(8))
             background = neonPanel()
         }
-        root.addView(display, full())
+        root.addView(display, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) })
 
         val musicRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -932,7 +932,7 @@ class MainActivity : Activity() {
             background = neonPanel()
             setPadding(dp(4), dp(5), dp(4), dp(5))
         }
-        root.addView(controls, full())
+        root.addView(controls, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) })
 
         fun control(symbol: String, action: () -> Unit): Button = Button(this).apply {
             text = symbol
@@ -940,7 +940,13 @@ class MainActivity : Activity() {
             setTextColor(green)
             isAllCaps = false
             backgroundTintList = null
-            background = neonButton(symbol == "▶")
+            background = if (symbol == "▶") GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(27, 96, 46), Color.rgb(4, 18, 15))
+            ).apply {
+                shape = GradientDrawable.OVAL
+                setStroke(dp(3), green)
+            } else neonButton()
             elevation = if (symbol == "▶") dp(10).toFloat() else dp(3).toFloat()
             controls.addView(this, LinearLayout.LayoutParams(
                 0, if (symbol == "▶") dp(78) else dp(58),
@@ -965,6 +971,8 @@ class MainActivity : Activity() {
 
         val add = Button(this).apply {
             text = "✚ ADD MP3"
+            backgroundTintList = null
+            background = neonButton(true)
             isAllCaps = false
             setTextColor(green)
             textSize = 12f
