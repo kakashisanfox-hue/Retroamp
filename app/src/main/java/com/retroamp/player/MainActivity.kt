@@ -817,55 +817,35 @@ class MainActivity : Activity() {
         infoColumn.addView(album, full())
 
             val equalizer = object : View(this) {
-    
-                private val paint = Paint(
-                    Paint.ANTI_ALIAS_FLAG
-                ).apply {
-                    color = green
-                }
-    
-                private val bars = FloatArray(24) {
-                    0.08f
-                }
-    
-                override fun onDraw(canvas: Canvas) {
-                    super.onDraw(canvas)
-    
-                    val gap = dp(3).toFloat()
-    
-                    val barWidth = (
-                        (width - gap * 23) / 24f
-                    ).coerceAtLeast(1f)
-    
-                    val maxHeight = height * 0.88f
-    
-                    for (i in bars.indices) {
-                        val target = if (playing) {
-                            Random.nextFloat() * 0.85f + 0.15f
-                        } else {
-                            0.08f
-                        }
-    
-                        bars[i] += (
-                            target - bars[i]
-                        ) * 0.45f
-    
-                        val left = i * (barWidth + gap)
-                        val top =
-                            height - bars[i] * maxHeight
-    
-                        canvas.drawRect(
-                            left,
-                            top,
-                            left + barWidth,
-                            height.toFloat(),
-                            paint
-                        )
+            private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+            private val bars = FloatArray(22) { 0.12f }
+            override fun onDraw(canvas: Canvas) {
+                super.onDraw(canvas)
+                val cols = bars.size
+                val rows = 14
+                val gap = dp(2).toFloat()
+                val cellW = ((width - gap * (cols - 1)) / cols).coerceAtLeast(1f)
+                val cellH = ((height - gap * (rows - 1)) / rows).coerceAtLeast(1f)
+                for (i in 0 until cols) {
+                    val target = if (playing) Random.nextFloat() * 0.78f + 0.22f else 0.08f
+                    bars[i] += (target - bars[i]) * 0.24f
+                    val lit = (bars[i] * rows).toInt().coerceIn(1, rows)
+                    for (j in 0 until rows) {
+                        val x = i * (cellW + gap)
+                        val y = height - (j + 1) * (cellH + gap)
+                        paint.color = if (j < lit) {
+                            when {
+                                j > rows * 0.78 -> Color.rgb(194, 255, 87)
+                                j > rows * 0.55 -> Color.rgb(111, 255, 88)
+                                else -> Color.rgb(49, 234, 93)
+                            }
+                        } else Color.rgb(9, 38, 27)
+                        canvas.drawRoundRect(x, y, x + cellW, y + cellH, dp(0.6f).toFloat(), dp(0.6f).toFloat(), paint)
                     }
-    
-                    postInvalidateDelayed(90)
                 }
+                postInvalidateDelayed(75)
             }
+        }
         infoColumn.addView(equalizer, LinearLayout.LayoutParams(-1, dp(70)).apply {
             topMargin = dp(12)
         })
@@ -928,16 +908,19 @@ class MainActivity : Activity() {
 
         fun control(symbol: String, action: () -> Unit): Button = Button(this).apply {
             text = symbol
-            textSize = if (symbol == "▶") 28f else 22f
+            textSize = if (symbol == "▶") 28f else 23f
             setTextColor(green)
             isAllCaps = false
             backgroundTintList = null
             background = if (symbol == "▶") neonPlay() else neonButton()
             elevation = if (symbol == "▶") dp(10).toFloat() else dp(3).toFloat()
-            controls.addView(this, LinearLayout.LayoutParams(
-                0, if (symbol == "▶") dp(78) else dp(58),
-                if (symbol == "▶") 1.35f else 1f
-            ).apply { marginEnd = dp(3) })
+            val lp = if (symbol == "▶") {
+                LinearLayout.LayoutParams(dp(86), dp(86))
+            } else {
+                LinearLayout.LayoutParams(0, dp(68), 1f)
+            }
+            lp.marginEnd = dp(4)
+            controls.addView(this, lp)
             setOnClickListener { action() }
         }
 
