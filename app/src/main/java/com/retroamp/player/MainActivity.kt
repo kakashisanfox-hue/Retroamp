@@ -57,23 +57,14 @@ class MainActivity : Activity() {
 
     private val handler = Handler(Looper.getMainLooper())
 
-    private fun neonPanel(): GradientDrawable = GradientDrawable(
-        GradientDrawable.Orientation.TL_BR,
-        intArrayOf(Color.rgb(30, 40, 43), Color.rgb(9, 20, 19))
-    ).apply {
-        cornerRadius = dp(12).toFloat()
-        setStroke(dp(1), Color.rgb(54, 175, 94))
-    }
+    private fun neonPanel(): android.graphics.drawable.Drawable =
+        NeonSkin(NeonSkin.Kind.PANEL, resources.displayMetrics.density)
 
-    private fun neonButton(active: Boolean = false): GradientDrawable = GradientDrawable(
-        GradientDrawable.Orientation.TOP_BOTTOM,
-        if (active) intArrayOf(Color.rgb(39, 110, 61), Color.rgb(12, 48, 31))
-        else intArrayOf(Color.rgb(44, 51, 53), Color.rgb(17, 24, 27))
-    ).apply {
-        cornerRadius = dp(10).toFloat()
-        setStroke(dp(1), if (active) green else Color.rgb(78, 107, 95))
-    }
+    private fun neonButton(active: Boolean = false): android.graphics.drawable.Drawable =
+        NeonSkin(if (active) NeonSkin.Kind.ACTIVE else NeonSkin.Kind.BUTTON, resources.displayMetrics.density)
 
+    private fun neonPlay(): android.graphics.drawable.Drawable =
+        NeonSkin(NeonSkin.Kind.PLAY, resources.displayMetrics.density)
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(
@@ -776,6 +767,7 @@ class MainActivity : Activity() {
             typeface = Typeface.MONOSPACE
         })
         header.addView(label("  BY MATHEUSOBLACK", green, 8f))
+        header.background = NeonSkin(NeonSkin.Kind.HEADER, resources.displayMetrics.density)
         root.addView(header, LinearLayout.LayoutParams(-1, dp(74)).apply { bottomMargin = dp(6) })
 
         val display = LinearLayout(this).apply {
@@ -940,13 +932,7 @@ class MainActivity : Activity() {
             setTextColor(green)
             isAllCaps = false
             backgroundTintList = null
-            background = if (symbol == "▶") GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.rgb(27, 96, 46), Color.rgb(4, 18, 15))
-            ).apply {
-                shape = GradientDrawable.OVAL
-                setStroke(dp(3), green)
-            } else neonButton()
+            background = if (symbol == "▶") neonPlay() else neonButton()
             elevation = if (symbol == "▶") dp(10).toFloat() else dp(3).toFloat()
             controls.addView(this, LinearLayout.LayoutParams(
                 0, if (symbol == "▶") dp(78) else dp(58),
